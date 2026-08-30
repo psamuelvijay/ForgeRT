@@ -1,0 +1,104 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# IDE and editor files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*~
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# CUDA compiled files
+*.ptx
+*.cubin
+*.fatbin
+
+# Object files
+*.o
+*.obj
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+!cmake/*.cmake
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Dataset and model files
+*.onnx
+*.pth
+*.pt
+*.bin
+*.safetensors
+datasets/
+models/
+data/
+checkpoints/
+
+# Benchmark and profiling results
+*.nsys-rep
+*.nvprof
+*.qdrep
+*.prof
+benchmark_results/
+profiling_results/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Documentation build
+docs/_build/
+docs/html/
+docs/latex/
+
+# Test outputs
+test_output/
+test_results/
+Testing/
