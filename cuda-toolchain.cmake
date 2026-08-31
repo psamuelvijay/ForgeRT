@@ -1,0 +1,2 @@
+set(CMAKE_CUDA_COMPILER "D:/Development/CUDA/v12.6/bin/nvcc.exe" CACHE FILEPATH "" FORCE)
+set(CMAKE_CUDA_HOST_COMPILER "D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" CACHE FILEPATH "" FORCE)

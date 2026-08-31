@@ -41,6 +41,7 @@ Makefile
 *.cmake
 !CMakeLists.txt
 !cmake/*.cmake
+!*-toolchain.cmake
 
 # Python
 __pycache__/
