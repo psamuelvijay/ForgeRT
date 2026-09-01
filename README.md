@@ -107,19 +107,64 @@ forgert/
 
 ## Building
 
-```bash
-# Prerequisites: CUDA Toolkit 12.x, CMake 3.18+, MSVC
-mkdir build && cd build
-cmake ..
-cmake --build . --config Release
+### Windows (MSVC + CUDA 12.6)
+
+**Quick Build:**
+```batch
+scripts\build.bat
 ```
+
+**Build Options:**
+```batch
+scripts\build.bat          # Build with existing configuration
+scripts\build.bat clean    # Clean and reconfigure
+scripts\build.bat config   # Reconfigure only
+scripts\build.bat test     # Build and run tests
+```
+
+**Manual Build:**
+```batch
+# Set up MSVC 14.39 environment
+call "D:\Development\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.39
+
+# Configure
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_CXX_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
+  -DCMAKE_CUDA_COMPILER="D:/Development/CUDA/v12.6/bin/nvcc.exe" ^
+  -DCMAKE_CUDA_HOST_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
+  -DCMAKE_CUDA_ARCHITECTURES=61
+
+# Build
+cmake --build build --parallel
+```
+
+**Requirements:**
+- CUDA Toolkit 12.6 (sm_61 support - CUDA 13.x dropped Pascal)
+- MSVC 14.39 (Visual Studio 2022 Build Tools)
+- CMake 3.18+
+- Ninja build system
 
 ## Running Tests
 
-```bash
-cd build
-ctest --output-on-failure
+```batch
+scripts\build.bat test
 ```
+
+Or manually:
+```batch
+call "D:\Development\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.39
+ctest --test-dir build --output-on-failure
+```
+
+## Current Status
+
+**Phase 1: Foundation** ✓ (Partial)
+- ✅ Tensor shape/stride representation
+- ✅ CPU tensor allocation
+- ✅ DataType abstraction (Float32, Int32)
+- ✅ Basic unit test framework
+- ⏳ Graph node structure (next)
+- ⏳ Operator base class (next)
 
 ## Engineering Principles
 
