@@ -158,13 +158,15 @@ ctest --test-dir build --output-on-failure
 
 ## Current Status
 
-**Phase 1: Foundation** ✓ (Partial)
+**Phase 1: Foundation** ✓ (Nearly Complete)
 - ✅ Tensor shape/stride representation
-- ✅ CPU tensor allocation
+- ✅ CPU tensor allocation with RAII
 - ✅ DataType abstraction (Float32, Int32)
-- ✅ Basic unit test framework
-- ⏳ Graph node structure (next)
-- ⏳ Operator base class (next)
+- ✅ Operator abstraction framework
+- ✅ Add operator with NumPy-style broadcasting
+- ✅ Comprehensive unit test framework (2 test suites)
+- ⏳ Additional operators (ReLU, MatMul - Phase 2)
+- ⏳ Graph structure (Phase 2+)
 
 ## Engineering Principles
 
