@@ -21,6 +21,13 @@ namespace forgert {
 class TensorShape {
 public:
     /**
+     * @brief Default constructor (creates empty shape)
+     * Only for use in containers that require default construction.
+     * Should not be used directly.
+     */
+    TensorShape() : dimensions_({1}), strides_({1}) {}
+
+    /**
      * @brief Construct a tensor shape
      * @param dims Dimensions of the tensor
      * @param row_major If true, compute row-major strides; if false, column-major

@@ -12,10 +12,57 @@ The central research question: *"Given a neural network graph and limited hetero
 
 - **Resource-Aware Scheduling**: Adaptive execution placement (CPU vs GPU) based on measured costs
 - **Custom CUDA Kernels**: Hand-optimized kernels targeting Pascal architecture (sm_61)
-- **Graph Optimization**: Constant folding, dead-node elimination, operator fusion
+- **Graph-Based Execution**: DAG computation graph with automatic dependency resolution
+- **Operator Abstraction**: Clean separation between operations and execution backends
 - **Memory Management**: Explicit lifetime tracking, pooling, and reuse strategies
 - **Performance Profiling**: Detailed metrics separating kernel time, transfer time, and overhead
 - **Reproducible Benchmarks**: Comprehensive comparison against established runtimes
+
+## Execution Pipeline
+
+ForgeRT implements a complete inference pipeline:
+
+```
+Graph Construction
+    ↓
+Shape Inference (validates compatibility)
+    ↓
+Topological Sort (determines execution order)
+    ↓
+Memory Allocation (intermediate tensors)
+    ↓
+Operator Execution (CPU/CUDA backends)
+    ↓
+Result Tensors
+```
+
+## Implemented Operators
+
+### Phase 1 & 2: CPU Backend
+
+| Operator | Description | Shape Example | Status |
+|----------|-------------|---------------|--------|
+| **Add** | Element-wise addition with broadcasting | `[3,4] + [4] → [3,4]` | ✅ Complete |
+| **ReLU** | Rectified Linear Unit activation | `[M,N] → [M,N]` | ✅ Complete |
+| **MatMul** | 2D Matrix multiplication | `[M,K] @ [K,N] → [M,N]` | ✅ Complete |
+
+**Example:**
+```cpp
+// Create computation graph
+Graph graph;
+auto input_a = graph.addInput(TensorShape({3, 4}), DataType::Float32);
+auto input_b = graph.addInput(TensorShape({4}), DataType::Float32);
+
+// Add operations
+auto add_out = graph.addNode(std::make_unique<AddOp>(), {input_a, input_b});
+auto relu_out = graph.addNode(std::make_unique<ReLUOp>(), {add_out[0]});
+
+// Mark output and execute
+graph.markOutput(relu_out[0]);
+graph.validate();
+
+auto results = graph.execute({&tensor_a, &tensor_b}, Backend::CPU);
+```
 
 ## Design Philosophy
 
@@ -158,15 +205,24 @@ ctest --test-dir build --output-on-failure
 
 ## Current Status
 
-**Phase 1: Foundation** ✓ (Nearly Complete)
+**Phase 1: Foundation** ✅ Complete
 - ✅ Tensor shape/stride representation
 - ✅ CPU tensor allocation with RAII
 - ✅ DataType abstraction (Float32, Int32)
 - ✅ Operator abstraction framework
 - ✅ Add operator with NumPy-style broadcasting
-- ✅ Comprehensive unit test framework (2 test suites)
-- ⏳ Additional operators (ReLU, MatMul - Phase 2)
-- ⏳ Graph structure (Phase 2+)
+- ✅ **Graph representation and execution**
+- ✅ **DAG validation with cycle detection**
+- ✅ **Topological execution ordering**
+- ✅ **CPU backend execution pipeline**
+- ✅ Comprehensive unit test framework (6 test suites, 40 tests)
+
+**Phase 2: CPU Backend** (In Progress)
+- ✅ ReLU operator (element-wise activation)
+- ✅ MatMul operator (2D matrix multiplication)
+- ⏳ Additional operators (Softmax, LayerNorm, Conv2D)
+- ⏳ Performance baseline measurements
+- ⏳ Simple benchmark harness
 
 ## Engineering Principles
 
