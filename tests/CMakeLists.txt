@@ -20,6 +20,10 @@ target_include_directories(test_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
 add_executable(test_softmax test_softmax.cpp)
 target_include_directories(test_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
 
+# LayerNorm operator tests
+add_executable(test_layernorm test_layernorm.cpp)
+target_include_directories(test_layernorm PRIVATE ${FORGERT_INCLUDE_DIR})
+
 # Graph tests
 add_executable(test_graph test_graph.cpp)
 target_include_directories(test_graph PRIVATE ${FORGERT_INCLUDE_DIR})
@@ -38,6 +42,7 @@ add_test(NAME OperatorTest COMMAND test_operator)
 add_test(NAME ReLUTest COMMAND test_relu)
 add_test(NAME MatMulTest COMMAND test_matmul)
 add_test(NAME SoftmaxTest COMMAND test_softmax)
+add_test(NAME LayerNormTest COMMAND test_layernorm)
 add_test(NAME GraphTest COMMAND test_graph)
 add_test(NAME GraphMatMulTest COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest COMMAND test_graph_softmax)

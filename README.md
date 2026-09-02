@@ -46,6 +46,7 @@ Result Tensors
 | **ReLU** | Rectified Linear Unit activation | `[M,N] → [M,N]` | ✅ Complete |
 | **MatMul** | 2D Matrix multiplication | `[M,K] @ [K,N] → [M,N]` | ✅ Complete |
 | **Softmax** | Softmax activation (last dimension) | `[Batch,Classes] → [Batch,Classes]` | ✅ Complete |
+| **LayerNorm** | Layer normalization (last dimension) | `[Batch,Features] → [Batch,Features]` | ✅ Complete |
 
 **Example:**
 ```cpp
@@ -216,13 +217,13 @@ ctest --test-dir build --output-on-failure
 - ✅ **DAG validation with cycle detection**
 - ✅ **Topological execution ordering**
 - ✅ **CPU backend execution pipeline**
-- ✅ Comprehensive unit test framework (8 test suites, 54 tests)
+- ✅ Comprehensive unit test framework (9 test suites, 65 tests)
 
 **Phase 2: CPU Backend** (In Progress)
 - ✅ ReLU operator (element-wise activation)
 - ✅ MatMul operator (2D matrix multiplication)
 - ✅ Softmax operator (numerically stable classification activation)
-- ⏳ LayerNorm operator
+- ✅ LayerNorm operator (feature normalization)
 - ⏳ Conv2D operator
 - ⏳ Performance baseline measurements
 - ⏳ Simple benchmark harness
