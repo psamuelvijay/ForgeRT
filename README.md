@@ -45,6 +45,7 @@ Result Tensors
 | **Add** | Element-wise addition with broadcasting | `[3,4] + [4] → [3,4]` | ✅ Complete |
 | **ReLU** | Rectified Linear Unit activation | `[M,N] → [M,N]` | ✅ Complete |
 | **MatMul** | 2D Matrix multiplication | `[M,K] @ [K,N] → [M,N]` | ✅ Complete |
+| **Softmax** | Softmax activation (last dimension) | `[Batch,Classes] → [Batch,Classes]` | ✅ Complete |
 
 **Example:**
 ```cpp
@@ -215,12 +216,14 @@ ctest --test-dir build --output-on-failure
 - ✅ **DAG validation with cycle detection**
 - ✅ **Topological execution ordering**
 - ✅ **CPU backend execution pipeline**
-- ✅ Comprehensive unit test framework (6 test suites, 40 tests)
+- ✅ Comprehensive unit test framework (8 test suites, 54 tests)
 
 **Phase 2: CPU Backend** (In Progress)
 - ✅ ReLU operator (element-wise activation)
 - ✅ MatMul operator (2D matrix multiplication)
-- ⏳ Additional operators (Softmax, LayerNorm, Conv2D)
+- ✅ Softmax operator (numerically stable classification activation)
+- ⏳ LayerNorm operator
+- ⏳ Conv2D operator
 - ⏳ Performance baseline measurements
 - ⏳ Simple benchmark harness
 
