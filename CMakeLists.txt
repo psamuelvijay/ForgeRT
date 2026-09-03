@@ -28,11 +28,19 @@ endif()
 
 # Compiler flags
 if(MSVC)
-    add_compile_options(/W4)
+    # /W4 only for CXX — nvcc doesn't understand MSVC-style flags passed raw
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/W4>)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        add_compile_options(/O2)
+        # /O2 only for CXX
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/O2>)
     else()
-        add_compile_options(/Zi /Od)
+        # /Zi and /Od only for CXX — they must not reach nvcc because:
+        # 1) nvcc doesn't understand bare MSVC flags
+        # 2) CMake uses /Zi to trigger -Xcompiler=-Fd<pdb>,-FS which breaks nvcc
+        add_compile_options(
+            $<$<COMPILE_LANGUAGE:CXX>:/Zi>
+            $<$<COMPILE_LANGUAGE:CXX>:/Od>
+        )
     endif()
 else()
     add_compile_options(-Wall -Wextra -Werror)
@@ -47,6 +55,28 @@ endif()
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
 set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g -G")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -use_fast_math")
+
+# -----------------------------------------------------------------------
+# Workaround: CMake 4.x Windows-NVIDIA-CUDA.cmake appends
+#   -Xcompiler=-Fd<TARGET_COMPILE_PDB>,-FS
+# to CMAKE_CUDA_COMPILE_OBJECT.  nvcc treats the comma as a token
+# separator and aborts with "A single input file is required".
+# We strip it here after project() has loaded the platform file.
+# PDB tracking for CUDA objects is unnecessary — debug symbols are
+# embedded via -G/-g and the final PDB is written by the linker.
+# -----------------------------------------------------------------------
+if(MSVC)
+    string(REPLACE
+        " -Xcompiler=-Fd<TARGET_COMPILE_PDB>,-FS"
+        ""
+        CMAKE_CUDA_COMPILE_OBJECT
+        "${CMAKE_CUDA_COMPILE_OBJECT}"
+    )
+    # The host compiler (-Xcompiler="-Zi ...") still generates PDB files.
+    # When Ninja builds multiple .cu files in parallel they race on vc140.pdb.
+    # Adding /FS (Serialized PDB writes) to the CUDA host flags prevents C1041.
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=/FS")
+endif()
 
 # Project directories
 set(FORGERT_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)

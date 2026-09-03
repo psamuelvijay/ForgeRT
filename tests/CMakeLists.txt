@@ -36,6 +36,16 @@ target_include_directories(test_graph_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
 add_executable(test_graph_softmax test_graph_softmax.cpp)
 target_include_directories(test_graph_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
 
+# ReLU CUDA kernel tests (Phase 3)
+# Compiled by nvcc so cuda_runtime.h is available automatically
+add_executable(test_relu_cuda test_relu_cuda.cu)
+target_include_directories(test_relu_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_relu_cuda PRIVATE forgert_cuda)
+set_target_properties(test_relu_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
 # Register with CTest
 add_test(NAME TensorTest COMMAND test_tensor)
 add_test(NAME OperatorTest COMMAND test_operator)
@@ -46,5 +56,6 @@ add_test(NAME LayerNormTest COMMAND test_layernorm)
 add_test(NAME GraphTest COMMAND test_graph)
 add_test(NAME GraphMatMulTest COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest COMMAND test_graph_softmax)
+add_test(NAME ReLUCUDATest COMMAND test_relu_cuda)
 
 message(STATUS "ForgeRT tests configured")
