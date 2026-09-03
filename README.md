@@ -112,14 +112,19 @@ forgert/
 
 ## Development Phases
 
-### Phase 1: Foundation ✓
-- Tensor abstraction
-- Graph representation
-- CMake build system
-- Unit test harness
+### Phase 1: Foundation ✅ Complete
+- Tensor abstraction, Graph representation, CMake build system, unit test harness
 
-### Phase 2: CPU Backend
-- Correct CPU implementations (MatMul, Add, ReLU, Softmax, LayerNorm, Conv2D)
+### Phase 2: CPU Backend ✅ Complete
+- CPU implementations: Add, ReLU, MatMul, Softmax, LayerNorm, benchmark harness
+- Conv2D explicitly deferred
+
+### Phase 3: CUDA Backend 🔧 In Progress
+- ✅ Build system fixed for CMake 4.x + MSVC 14.39 + Ninja + CUDA 12.6 + sm_61
+- ✅ ReLU CUDA kernel (grid-stride, Pascal sm_61)
+- ✅ ReLUOp CUDA backend dispatch (`Backend::CUDA` → GPU kernel)
+- ⏳ CUDA kernels for remaining operators
+- ⏳ Tensor CUDA memory allocation (Phase 4 prerequisite for graph-level CUDA)
 
 ### Phase 3: CUDA Backend
 - Custom CUDA kernels for Pascal (sm_61)
@@ -213,19 +218,33 @@ ctest --test-dir build --output-on-failure
 - ✅ DataType abstraction (Float32, Int32)
 - ✅ Operator abstraction framework
 - ✅ Add operator with NumPy-style broadcasting
-- ✅ **Graph representation and execution**
-- ✅ **DAG validation with cycle detection**
-- ✅ **Topological execution ordering**
-- ✅ **CPU backend execution pipeline**
-- ✅ Comprehensive unit test framework (9 test suites, 65 tests)
+- ✅ Graph representation and execution
+- ✅ DAG validation with cycle detection
+- ✅ Topological execution ordering
+- ✅ CPU backend execution pipeline
 
-**Phase 2: CPU Backend** ✅ **COMPLETE**
-- ✅ ReLU operator (element-wise activation)
-- ✅ MatMul operator (2D matrix multiplication)
-- ✅ Softmax operator (numerically stable classification activation)
-- ✅ LayerNorm operator (feature normalization)
-- ✅ Performance baseline measurements (benchmark harness implemented)
-- ⏳ Conv2D operator (deferred to future phase for CNN support)
+**Phase 2: CPU Backend** ✅ Complete
+- ✅ ReLU operator
+- ✅ MatMul operator
+- ✅ Softmax operator (numerically stable)
+- ✅ LayerNorm operator (two-pass algorithm)
+- ✅ CPU benchmark harness
+- ⏳ Conv2D — explicitly deferred
+
+**Phase 3: CUDA Backend** 🔧 In Progress
+- ✅ Build system: CMake 4.x + MSVC 14.39 + Ninja + CUDA 12.6 + sm_61 working
+- ✅ ReLU CUDA kernel (`cuda/kernels/relu_kernel.cu`) — grid-stride loop, sm_61, tested at 1K and 1M elements
+- ✅ `ReLUOp::executeCUDA()` — CUDA backend wired into operator dispatch (`Backend::CUDA` routes to the GPU kernel)
+- ✅ `ReLUOp::supportsBackend()` reports CUDA when built with `FORGERT_CUDA_AVAILABLE`
+- ⏳ CUDA kernels for MatMul, Softmax, LayerNorm, Add — not yet implemented
+- ⏳ Phase 4 Tensor CUDA memory allocation (required before graph-level CUDA execution)
+
+**Test suite: 11/11 passing**
+- 9 CPU test suites (Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×3)
+- ReLUCUDATest — standalone kernel correctness on GTX 1050
+- ReLUOpCUDATest — full `ReLUOp::execute(Backend::CUDA)` dispatch path
+
+**CUDA configuration:** CUDA 12.6.85 · sm_61 (Pascal) · MSVC 14.39 · Ninja · CMake 4.3
 
 ## Engineering Principles
 

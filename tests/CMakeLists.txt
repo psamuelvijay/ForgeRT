@@ -36,12 +36,21 @@ target_include_directories(test_graph_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
 add_executable(test_graph_softmax test_graph_softmax.cpp)
 target_include_directories(test_graph_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
 
-# ReLU CUDA kernel tests (Phase 3)
-# Compiled by nvcc so cuda_runtime.h is available automatically
+# ReLU CUDA kernel tests (Phase 3) — standalone kernel correctness
 add_executable(test_relu_cuda test_relu_cuda.cu)
 target_include_directories(test_relu_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_relu_cuda PRIVATE forgert_cuda)
 set_target_properties(test_relu_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
+# ReLU operator CUDA integration tests (Phase 3) — exercises the full
+# ReLUOp::execute(Backend::CUDA) dispatch path through the operator abstraction
+add_executable(test_relu_op_cuda test_relu_op_cuda.cu)
+target_include_directories(test_relu_op_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_relu_op_cuda PRIVATE forgert_cuda)
+set_target_properties(test_relu_op_cuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
     CUDA_ARCHITECTURES 61
 )
@@ -56,6 +65,7 @@ add_test(NAME LayerNormTest COMMAND test_layernorm)
 add_test(NAME GraphTest COMMAND test_graph)
 add_test(NAME GraphMatMulTest COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest COMMAND test_graph_softmax)
-add_test(NAME ReLUCUDATest COMMAND test_relu_cuda)
+add_test(NAME ReLUCUDATest    COMMAND test_relu_cuda)
+add_test(NAME ReLUOpCUDATest  COMMAND test_relu_op_cuda)
 
 message(STATUS "ForgeRT tests configured")
