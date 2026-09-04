@@ -2,6 +2,7 @@
 
 set(FORGERT_CUDA_SOURCES
     kernels/relu_kernel.cu
+    kernels/cuda_memory.cu
 )
 
 add_library(forgert_cuda STATIC ${FORGERT_CUDA_SOURCES})
