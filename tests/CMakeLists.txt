@@ -36,6 +36,15 @@ target_include_directories(test_graph_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
 add_executable(test_graph_softmax test_graph_softmax.cpp)
 target_include_directories(test_graph_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
 
+# CUDA graph integration tests (Phase 3) — proves Tensor→Graph→Operator→CUDA kernel
+add_executable(test_graph_cuda test_graph_cuda.cu)
+target_include_directories(test_graph_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_graph_cuda PRIVATE forgert_cuda)
+set_target_properties(test_graph_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
 # Tensor CUDA memory tests (Phase 4) — allocation, RAII, transfers, graph execution
 add_executable(test_tensor_cuda test_tensor_cuda.cu)
 target_include_directories(test_tensor_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
@@ -50,6 +59,15 @@ add_executable(test_relu_cuda test_relu_cuda.cu)
 target_include_directories(test_relu_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_relu_cuda PRIVATE forgert_cuda)
 set_target_properties(test_relu_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
+# MatMul CUDA kernel tests (Phase 3) — standalone kernel correctness
+add_executable(test_matmul_cuda test_matmul_cuda.cu)
+target_include_directories(test_matmul_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_matmul_cuda PRIVATE forgert_cuda)
+set_target_properties(test_matmul_cuda PROPERTIES
     CUDA_SEPARABLE_COMPILATION OFF
     CUDA_ARCHITECTURES 61
 )
@@ -76,6 +94,7 @@ add_test(NAME GraphTest COMMAND test_graph)
 add_test(NAME GraphMatMulTest COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest COMMAND test_graph_softmax)
 add_test(NAME ReLUCUDATest    COMMAND test_relu_cuda)
+add_test(NAME MatMulCUDATest  COMMAND test_matmul_cuda)
 add_test(NAME ReLUOpCUDATest  COMMAND test_relu_op_cuda)
 
 message(STATUS "ForgeRT tests configured")
