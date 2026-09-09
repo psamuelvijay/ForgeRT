@@ -1,0 +1,1553 @@
+ForgeRT — Complete Project Context & Continuation Brief
+
+Purpose of this document: This file captures the complete working context, decisions, current implementation state, build environment, completed work, known issues, and future roadmap for the ForgeRT project.
+It is intended to be added to the project context so work can continue seamlessly in a new conversation thread.
+
+1. Project Overview
+Project
+
+ForgeRT — a resource-aware neural inference runtime written in modern C++/CUDA.
+
+GitHub repository:
+
+https://github.com/psamuelvijay/ForgeRT
+
+Local repository:
+
+D:\Projects\ForgeRT
+
+Primary development environment:
+
+Windows
+Project source/build on SSD (D:)
+Large datasets/models can be placed on HDD (E:)
+2. Core Project Idea
+
+ForgeRT is intended to be a lightweight educational/research-oriented neural-network inference runtime.
+
+The central research question is:
+
+Given a neural-network computation graph and constrained heterogeneous hardware, can a lightweight runtime automatically choose where operations should execute based on compute cost, memory pressure, and CPU↔GPU transfer overhead?
+
+The important idea is that:
+
+GPU execution is not automatically faster.
+
+For small operations, CPU execution may be preferable because copying data between CPU and GPU can cost more than the computation itself.
+
+ForgeRT should eventually make these decisions automatically and transparently.
+
+The runtime should be able to answer questions such as:
+
+Should this operator execute on CPU or GPU?
+Is moving this tensor to GPU worth the transfer cost?
+Is GPU memory under pressure?
+Would keeping an intermediate tensor on the CPU be cheaper?
+Can adjacent operations be fused?
+What execution placement minimizes total inference cost?
+
+A major differentiating feature should be explainable/resource-aware scheduling, rather than simply being another inference framework.
+
+3. Project Philosophy
+
+The project should follow these principles:
+
+Correctness first
+
+Do not optimize code before correctness and independent testing are established.
+
+Benchmark before making claims
+
+Do not claim that GPU is faster merely because CUDA is being used.
+
+Actual CPU/GPU measurements should eventually demonstrate when each backend is advantageous.
+
+Transparent resource decisions
+
+Scheduling decisions should be explainable.
+
+For example:
+
+MatMul → GPU
+Reason:
+  estimated compute cost: high
+  transfer cost: low
+  GPU memory available: sufficient
+
+or:
+
+ReLU → CPU
+Reason:
+  tensor is already resident on CPU
+  operation is cheap
+  GPU transfer overhead dominates
+Explicit memory management
+
+Memory ownership and transfers should be visible rather than hidden behind a framework.
+
+Independently test backends
+
+CPU and CUDA implementations should be testable independently and compared for numerical equivalence.
+
+Avoid unnecessary dependencies
+
+The runtime should remain lightweight and understandable.
+
+Interview explainability
+
+Every major architectural component should be something that can be explained clearly in a technical interview.
+
+Do not artificially inflate the project
+
+If an operator or optimization does not materially contribute to the runtime's goals, do not implement it merely to increase the feature count.
+
+4. Intended Architecture / Roadmap
+
+The original roadmap contains 10 phases:
+
+Foundation
+CPU backend / operators
+CUDA backend
+Memory system
+Graph optimization
+Resource-aware scheduler
+Autotuning
+Model import
+Benchmarking
+Visualization
+
+The important eventual pipeline is approximately:
+
+Model / Graph
+     ↓
+Graph Representation
+     ↓
+Shape / Dependency Analysis
+     ↓
+Resource Analysis
+     ↓
+Placement Decision
+ ┌─────────────┐
+ │             │
+CPU           GPU
+ │             │
+ └──────┬──────┘
+        ↓
+Memory / Transfer Management
+        ↓
+Execution
+        ↓
+Profiling / Cost Feedback
+        ↓
+Autotuning / Better Scheduling
+5. Current Hardware Target
+
+The main development/testing machine is:
+
+CPU: Intel Core i5-9300H
+RAM: 32 GB
+GPU: NVIDIA GTX 1050 4 GB
+GPU architecture: Pascal
+Compute capability: sm_61
+
+The GTX 1050 is an important constraint rather than something to hide.
+
+The project should explicitly account for the limitations of this older GPU.
+
+6. CUDA Environment
+
+The machine has multiple CUDA versions installed.
+
+Relevant versions:
+
+CUDA 12.6
+CUDA 13.2
+
+The project must use CUDA 12.6.
+
+Why CUDA 12.6?
+
+CUDA 13.x removed offline compilation/library support for older architectures including Pascal.
+
+The GTX 1050 requires:
+
+sm_61
+
+CUDA 12.6 supports Pascal sm_61.
+
+CUDA 13.2 does not provide the required Pascal offline compilation support.
+
+Current CUDA compiler:
+
+D:\Development\CUDA\v12.6\bin\nvcc.exe
+
+CUDA version:
+
+CUDA 12.6.85
+7. MSVC Environment
+
+Installed MSVC versions include:
+
+14.39.33519
+14.42.34433
+14.51.36231
+
+ForgeRT currently needs:
+
+MSVC 14.39.33519
+
+because CUDA 12.6 officially supports the corresponding MSVC compiler version range.
+
+The compiler executable is:
+
+D:\Development\VSBuildTools\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe
+
+Correct environment setup:
+
+"D:\Development\VSBuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 -vcvars_ver=14.39
+
+This gives:
+
+MSVC 19.39
+
+which is compatible with the CUDA 12.6 setup.
+
+8. Important Build-System Discovery
+
+A major part of the work involved getting CUDA + CMake + MSVC working correctly on Windows.
+
+Problem
+
+The Visual Studio CMake generator was not respecting the desired CUDA host compiler selection properly.
+
+It could end up selecting:
+
+CUDA 13.2
+newer MSVC versions
+the Visual Studio 2026 generator
+
+This was incompatible with the Pascal/CUDA 12.6 requirements.
+
+Solution
+
+Use the Ninja generator and explicitly specify:
+
+C++ compiler
+CUDA compiler
+CUDA host compiler
+CUDA architecture
+
+Correct configure command:
+
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_CXX_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
+  -DCMAKE_CUDA_COMPILER="D:/Development/CUDA/v12.6/bin/nvcc.exe" ^
+  -DCMAKE_CUDA_HOST_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
+  -DCMAKE_CUDA_ARCHITECTURES=61
+
+This successfully configured ForgeRT using:
+
+Ninja
+MSVC 19.39
+CUDA 12.6
+sm_61
+9. CMake 4.3 / CUDA Windows Issue
+
+Another important build-system issue was discovered.
+
+CMake 4.3's NVIDIA CUDA Windows configuration generated a CUDA compile command containing:
+
+-Xcompiler=-Fd<TARGET_COMPILE_PDB>,-FS
+
+The comma caused nvcc to interpret part of the command incorrectly, resulting in CUDA compilation errors.
+
+The project was fixed by:
+
+Stripping the problematic:
+-Xcompiler=-Fd<TARGET_COMPILE_PDB>,-FS
+
+suffix from:
+
+CMAKE_CUDA_COMPILE_OBJECT
+
+after project().
+
+Scoping MSVC-specific flags such as:
+/W4
+/O2
+/Zi
+/Od
+
+to C++ compilation only.
+
+Adding:
+-Xcompiler=/FS
+
+to CUDA flags to avoid the MSVC PDB race/error:
+
+C1041
+
+These fixes are intentional and should not be casually removed.
+
+10. Toolchain File
+
+A tracked file exists:
+
+cuda-toolchain.cmake
+
+It contains machine-specific absolute paths similar to:
+
+set(CMAKE_CUDA_COMPILER "D:/Development/CUDA/v12.6/bin/nvcc.exe" CACHE FILEPATH "" FORCE)
+
+set(CMAKE_CUDA_HOST_COMPILER "D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" CACHE FILEPATH "" FORCE)
+
+The repository's .gitignore ignores *.cmake generally but explicitly allows:
+
+!*-toolchain.cmake
+
+so this file can remain tracked.
+
+Future consideration
+
+The absolute paths are machine-specific and reduce portability.
+
+At some point, this could be cleaned up into a more portable configuration.
+
+However:
+
+Do not break the currently working CUDA build merely for portability cleanup.
+
+Only address this deliberately.
+
+11. Basic CUDA Validation
+
+Before integrating CUDA into the runtime, a minimal CUDA kernel was manually compiled with:
+
+nvcc -arch=sm_61
+
+and successfully executed.
+
+Output:
+
+ForgeRT CUDA kernel executed on GPU!
+
+This established that:
+
+CUDA compiler works
+CUDA runtime works
+GTX 1050 works
+sm_61 compilation works
+GPU execution works
+12. Repository Structure
+
+The repository currently contains major areas such as:
+
+benchmarks/
+cuda/
+docs/
+examples/
+include/
+scripts/
+src/
+tests/
+tools/
+
+The architecture should continue evolving within this structure rather than introducing unnecessary restructuring.
+
+13. Phase 1 — Foundation
+Status
+
+COMPLETE
+
+Phase 1 established the runtime's core abstractions.
+
+Implemented:
+
+Tensor
+
+A tensor abstraction with:
+
+shape
+datatype
+device
+storage
+ownership
+access
+TensorShape
+
+Represents tensor dimensions.
+
+DataType
+
+Provides datatype abstraction.
+
+Device
+
+Represents execution/storage device.
+
+Operator abstraction
+
+A common operator interface was established.
+
+Operators can:
+
+validate inputs
+infer output shapes
+execute
+select a backend
+Add operator
+
+Implemented CPU Add with NumPy-style broadcasting.
+
+14. Graph System
+
+ForgeRT has a real DAG-based computation graph.
+
+The graph uses value-based integer tensor IDs.
+
+The graph owns:
+
+tensors
+nodes
+operators
+
+The graph supports:
+
+dependency tracking
+topological sorting
+cycle detection
+shape inference
+validation
+intermediate tensor allocation
+CPU execution
+
+Topological sorting uses:
+
+Kahn's algorithm
+
+The graph architecture was intentionally designed to support future resource-aware scheduling.
+
+15. Graph Tests
+
+The graph test suite covers scenarios including:
+
+single node
+multi-node graph
+diamond dependencies
+multiple outputs
+broadcasting
+invalid shapes
+cycle detection
+no-output graphs
+execution ordering
+
+A real graph equivalent to:
+
+A + B
+A + C
+  ↓
+(A + B) + (A + C)
+
+was successfully executed.
+
+Expected result:
+
+[112, 224]
+
+and was verified.
+
+16. Phase 1 Design Decisions
+
+Important decisions:
+
+preallocated outputs
+stateless operators
+backend selected by caller/scheduler
+shape inference separated from execution
+RAII ownership
+move-only ownership where appropriate
+graph-owned resources
+
+These choices are important for later CPU/GPU placement and memory management.
+
+17. Phase 1 Acceptance
+
+Phase 1 acceptance criteria were met.
+
+The graph foundation is considered stable enough for later backend/scheduling work.
+
+18. Phase 2 — CPU Operators
+Status
+
+COMPLETE BY DESIGN
+
+Important:
+
+Conv2D was intentionally deferred.
+
+Do not treat the lack of Conv2D as evidence that Phase 2 is incomplete.
+
+The goal was to establish representative CPU operators and a benchmark foundation rather than implement every neural-network operation.
+
+19. Production CPU Operators
+
+Implemented CPU operators:
+
+Add
+ReLU
+MatMul
+Softmax
+LayerNorm
+20. CPU MatMul
+
+Implemented:
+
+[M,K] @ [K,N] → [M,N]
+
+The implementation is a straightforward:
+
+O(M × K × N)
+
+row-major CPU baseline.
+
+The purpose is correctness and providing a baseline for later CUDA optimization.
+
+Heavy CPU optimization was intentionally deferred.
+
+21. CPU ReLU
+
+Standard elementwise ReLU.
+
+22. CPU Softmax
+
+Softmax implementation:
+
+numerically stable
+subtracts maximum value
+operates along the last dimension
+supports 1D
+supports 2D
+supports ND tensors
+Float32 CPU implementation
+
+Testing includes numerous unit tests and graph integration tests.
+
+23. CPU LayerNorm
+
+LayerNorm was implemented in production and tested.
+
+24. CPU Benchmark Harness
+
+A benchmark executable exists:
+
+benchmark_operators.cpp
+
+It covers:
+
+ReLU
+Softmax
+LayerNorm
+MatMul
+
+Benchmark features include:
+
+warmup
+timing
+GFLOP/s
+GB/s
+
+This provides the baseline for later CPU vs GPU measurements.
+
+25. Phase 2 Testing
+
+The latest Phase 2 audit reported:
+
+CPU implementation complete
+all required operators tested
+CTest suites passing
+acceptance criteria met
+quality gates met
+
+Again:
+
+Conv2D is deferred intentionally.
+
+Do not implement Conv2D just to claim completeness.
+
+26. Phase 3 — CUDA Backend
+Current Status
+
+IN PROGRESS
+
+Completed so far:
+
+CUDA build infrastructure
+CUDA Tensor memory/transfer support
+CUDA ReLU
+CUDA MatMul
+
+Next:
+
+CUDA Softmax
+CUDA LayerNorm
+CUDA Add
+CUDA graph-level CUDA validation
+CPU vs GPU benchmarks
+27. CUDA Tensor Memory System
+
+Implemented CUDA memory wrappers in:
+
+cuda_memory.h
+cuda_memory.cu
+
+These provide plain C-style wrappers around CUDA functionality such as:
+
+cudaMalloc
+cudaFree
+cudaMemcpy
+cudaMemset
+
+This keeps CUDA implementation details isolated.
+
+28. Tensor CUDA Support
+
+Tensor now supports CUDA storage.
+
+CUDA allocation occurs when the tensor's device is CUDA.
+
+Cleanup correctly releases CUDA memory.
+
+Implemented operations include:
+
+Zero
+
+Uses:
+
+cudaMemset
+Fill
+
+Uses host staging followed by host-to-device transfer.
+
+copyTo
+
+Supports:
+
+CPU → CPU
+CPU → CUDA
+CUDA → CPU
+CUDA → CUDA
+29. CUDA Compilation Guards
+
+CUDA-specific functionality is protected by:
+
+#ifdef FORGERT_CUDA_AVAILABLE
+
+Host-facing headers avoid leaking:
+
+cuda_runtime.h
+
+where it is not needed.
+
+This keeps CPU-only compilation cleaner.
+
+30. CUDA Tensor Tests
+
+A CUDA Tensor test suite was added.
+
+It contains tests for things such as:
+
+CUDA allocation
+host-to-device transfer
+device-to-host transfer
+CUDA operations
+graph execution
+CUDA memory behavior
+
+The latest Tensor CUDA work included 12 tests in that test area.
+
+31. CUDA ReLU
+
+CUDA ReLU kernel:
+
+cuda/kernels/relu_kernel.cu
+
+The kernel uses a grid-stride loop.
+
+Conceptually:
+
+for (i = thread_id; i < N; i += grid_stride)
+    output[i] = max(input[i], 0)
+
+The launcher:
+
+forgert_relu_cuda()
+
+returns an integer error/status value.
+
+It is exposed through:
+
+extern "C"
+
+and performs proper CUDA error handling and synchronization.
+
+32. CUDA ReLU Operator Integration
+
+ReLUOp now supports:
+
+Backend::CUDA
+
+through:
+
+executeCUDA()
+
+and:
+
+supportsBackend()
+
+CUDA declarations are protected with:
+
+#ifdef FORGERT_CUDA_AVAILABLE
+33. CUDA ReLU Tests
+
+Two levels of CUDA testing were created.
+
+Kernel-level tests
+
+Tests included:
+
+1024-element correctness
+1M-element grid-stride behavior
+CPU vs CUDA equivalence
+Operator-level tests
+
+Tests included:
+
+backend support
+small input correctness
+large input correctness
+CPU/CUDA equivalence
+wrong-device error paths
+
+The operator integration work produced commit:
+
+895cb18
+
+Commit message:
+
+CUDA ReLU operator dispatch integration
+
+This commit was pushed to GitHub.
+
+34. CUDA Tensor Commit
+
+The Tensor CUDA memory/transfer work was committed as:
+
+a4b3e9e
+
+and pushed.
+
+35. CUDA MatMul
+
+CUDA MatMul has now been implemented.
+
+Kernel characteristics:
+
+tiled matrix multiplication
+16 × 16 tile
+256 threads per block
+shared memory
+designed with Pascal sm_61 in mind
+
+The purpose is to introduce an actual nontrivial CUDA optimization rather than simply translating a CPU loop into a kernel.
+
+36. CUDA MatMul Operator
+
+MatMulOp now supports CUDA execution.
+
+The CUDA implementation dispatches into the tiled CUDA kernel.
+
+CPU and CUDA implementations are kept as separate backend paths.
+
+37. CUDA MatMul Testing
+
+The CUDA MatMul work includes multiple test scenarios covering:
+
+small matrices
+larger matrices
+edge cases
+CPU/CUDA numerical equivalence
+performance-oriented execution
+
+Reported tested sizes range from approximately:
+
+2 × 2
+
+to:
+
+64 × 64
+
+The GTX 1050 successfully executes these kernels.
+
+38. Current Test State
+
+The latest engineering report stated:
+
+13/13 tests passing
+
+after the CUDA MatMul implementation.
+
+The repository was reported clean and the changes were pushed.
+
+Exact test registration count may evolve as more CUDA suites are added, so future agents should inspect the actual repository rather than relying on this number.
+
+39. Git History / Important Commits
+
+Known important commits:
+
+602d53e
+feat: initial ForgeRT project structure
+4240362
+docs: add development roadmap with 10 phases
+9e5dfda
+build: add CUDA 12.6 toolchain configuration for Pascal sm_61
+49ae2b8
+feat: implement Phase 1 tensor foundation
+ad5ab59
+build: add convenience build script for Windows
+2d6440f
+docs: update README with Windows build instructions and current status
+1077846
+feat: implement operator abstraction with Add operator
+9b69cbb
+docs: update README to reflect operator implementation
+f5237d9
+feat(phase3): CUDA ReLU kernel + build system fixes for MSVC/Ninja/CMake 4.x
+895cb18
+CUDA ReLU operator dispatch integration
+a4b3e9e
+CUDA Tensor memory allocation and transfer primitives
+
+A CUDA MatMul commit was also made/pushed after these, but its exact hash was not captured in this conversation context. The next agent should inspect:
+
+git log --oneline --decorate -20
+
+rather than guessing the hash.
+
+40. Current Repository State
+
+At the latest confirmed point:
+
+Phase 1        COMPLETE
+Phase 2        COMPLETE
+Phase 3        IN PROGRESS
+
+CUDA build     WORKING
+CUDA Tensor    WORKING
+CUDA ReLU      WORKING
+CUDA MatMul    WORKING
+
+CUDA Softmax   NEXT
+CUDA LayerNorm NOT YET IMPLEMENTED
+CUDA Add       NOT YET IMPLEMENTED
+
+CPU/GPU benchmark       NOT YET COMPLETE
+Resource scheduler      NOT YET IMPLEMENTED
+Memory pool/lifetime    NOT YET IMPLEMENTED
+Graph optimization      NOT YET IMPLEMENTED
+Autotuning              NOT YET IMPLEMENTED
+Model import            NOT YET IMPLEMENTED
+Visualization           NOT YET IMPLEMENTED
+41. Immediate Next Task — CUDA Softmax
+
+The next intended milestone is:
+
+Implement CUDA Softmax.
+
+This should be the next focused task rather than jumping immediately into scheduling.
+
+Why Softmax?
+
+Because it exercises a different CUDA programming pattern from ReLU and MatMul.
+
+ReLU is primarily:
+
+elementwise
+
+MatMul is:
+
+tiled/shared-memory computation
+
+Softmax introduces:
+
+reduction
+
+This gives ForgeRT multiple representative CUDA kernel patterns.
+
+42. CUDA Softmax Requirements
+
+The CUDA Softmax implementation should preserve the CPU operator's semantics.
+
+Important requirements:
+
+Last-dimension semantics
+
+Softmax should operate along the last tensor dimension, consistent with the CPU implementation.
+
+Numerical stability
+
+Use:
+
+x - max(x)
+
+before exponentiation.
+
+Avoid naïve:
+
+exp(x)
+
+without stabilization.
+
+Actual CUDA reduction
+
+Do not merely implement a serial CPU-like algorithm inside a CUDA kernel.
+
+The CUDA implementation should demonstrate an appropriate reduction strategy.
+
+Operator integration
+
+SoftmaxOp should support:
+
+Backend::CUDA
+
+through the existing operator abstraction.
+
+Error handling
+
+CUDA errors should not be hidden.
+
+CPU/CUDA equivalence
+
+Results should be compared against the CPU implementation with an appropriate floating-point tolerance.
+
+43. CUDA Softmax Testing
+
+Tests should cover at least:
+
+small tensors
+larger tensors
+multiple rows
+last-dimension behavior
+numerical stability
+CPU vs CUDA equivalence
+invalid device/backend cases
+relevant edge cases
+
+The agent should inspect existing CPU Softmax tests and existing CUDA test conventions before deciding exact test structure.
+
+44. Important Instruction for Coding Agent
+
+The coding agent is powerful and has full repository access.
+
+Therefore prompts should not dictate every line of implementation.
+
+Instead:
+
+Explain the current state.
+Give the objective.
+State architectural constraints.
+Define acceptance criteria.
+Tell the agent to inspect the actual repository first.
+Let the agent choose implementation details.
+Require tests.
+Require full regression testing.
+Require documentation updates where appropriate.
+Require a meaningful commit and push.
+Tell it to stop after the requested milestone.
+
+This avoids unnecessary micromanagement while keeping the scope controlled.
+
+45. Recommended CUDA Softmax Agent Prompt
+
+Use a prompt along these lines:
+
+Continue ForgeRT from the current repository state.
+
+You have full repository access. Inspect the actual code, build system, tests, and recent git history before making changes. Do not assume file names or APIs if the repository differs from this context.
+
+CURRENT STATE:
+- Phase 1 complete.
+- Phase 2 complete by design.
+- Conv2D is intentionally deferred.
+- Phase 3 CUDA infrastructure is working.
+- CUDA Tensor allocation/transfers are working.
+- CUDA ReLU is implemented and tested.
+- CUDA MatMul is implemented and tested.
+- Target GPU: GTX 1050 4 GB, Pascal, sm_61.
+- CUDA version: 12.6.
+- Host compiler: MSVC 14.39.
+- Ninja is the working CMake generator.
+- CMake 4.3 CUDA/MSVC workarounds already exist and must not be broken.
+- CPU Softmax is already implemented and tested.
+
+TASK:
+Implement CUDA Softmax as the next focused Phase 3 milestone.
+
+OBJECTIVE:
+Add a real CUDA implementation of the existing Softmax operator and integrate it cleanly into ForgeRT's existing backend abstraction.
+
+REQUIREMENTS:
+- Preserve the CPU Softmax semantics exactly, especially last-dimension behavior.
+- Maintain numerical stability using max subtraction before exponentiation.
+- Use a genuine CUDA reduction approach rather than a CPU-like serial implementation.
+- Make the implementation appropriate for Pascal/sm_61 and CUDA 12.6.
+- Integrate through the existing SoftmaxOp/backend dispatch architecture.
+- Keep CUDA-specific declarations appropriately guarded.
+- Follow the existing CUDA ReLU/MatMul/Tensor architecture and error-handling conventions.
+- Do not introduce unnecessary dependencies or unrelated architectural changes.
+- Add focused CUDA unit/integration tests.
+- Test CPU vs CUDA numerical equivalence with sensible floating-point tolerances.
+- Include small and larger inputs, multiple rows, last-dimension behavior, numerical-stability cases, and relevant error paths.
+- Run the complete test suite, not only the new tests.
+- Preserve all existing Phase 1, Phase 2, ReLU, Tensor, and MatMul functionality.
+- Update documentation/status only where appropriate.
+- Keep the implementation interview-explainable.
+
+IMPORTANT:
+Do not implement LayerNorm, Add, scheduler, memory pool, graph optimization, benchmarking framework, ONNX import, or other future-phase work in this task.
+
+Before finishing:
+1. Inspect git status and recent commits.
+2. Implement CUDA Softmax.
+3. Add tests.
+4. Build with the known working CUDA 12.6 + MSVC 14.39 + Ninja + sm_61 configuration.
+5. Run the full CTest suite.
+6. Verify the working tree.
+7. Create one meaningful commit for this milestone.
+8. Push it to the ForgeRT GitHub repository.
+9. Report exactly what changed, tests run/results, commit hash, and git status.
+10. Stop after this milestone.
+46. After CUDA Softmax
+
+Once Softmax is stable, the next Phase 3 sequence should be:
+
+CUDA Softmax
+      ↓
+CUDA LayerNorm
+      ↓
+CUDA Add
+      ↓
+CUDA graph-level execution tests
+      ↓
+CPU vs GPU benchmarks
+      ↓
+Phase 3 completion audit
+
+This sequence is preferable to jumping directly into the scheduler.
+
+47. CUDA LayerNorm
+
+After Softmax, implement CUDA LayerNorm.
+
+Reason:
+
+LayerNorm combines:
+
+reductions
+normalization
+elementwise operations
+
+It provides another useful CUDA workload and will eventually be important for transformer-style workloads.
+
+However, implementation should still follow the actual CPU semantics already established in the repository.
+
+48. CUDA Add
+
+After LayerNorm:
+
+Implement CUDA Add while preserving the existing NumPy-style broadcasting semantics.
+
+This is especially useful because Add is simple computationally but can become interesting in the eventual scheduler:
+
+cheap computation
++
+potential CPU↔GPU transfer
+
+This makes Add a useful example for demonstrating:
+
+GPU is not always the best execution location.
+
+49. CUDA Graph Execution
+
+After the major CUDA operators are available, validate an actual graph executing across the CUDA backend.
+
+For example:
+
+Input
+  ├── Add
+  └── Add
+       ↓
+     MatMul / ReLU / etc.
+
+The exact graph should be chosen based on existing graph APIs.
+
+The important thing is to prove:
+
+Graph
+  ↓
+CUDA operator dispatch
+  ↓
+CUDA tensors
+  ↓
+CUDA execution
+  ↓
+Correct final output
+
+This is more meaningful than having isolated kernel tests only.
+
+50. CPU vs GPU Benchmarking
+
+This is a major future milestone.
+
+The project should eventually measure:
+
+CPU execution time
+GPU kernel execution time
+H2D transfer time
+D2H transfer time
+total GPU path time
+
+The key comparison should be:
+
+CPU:
+computation
+
+GPU:
+H2D + computation + D2H
+
+not simply:
+
+CPU computation vs GPU kernel time
+
+Otherwise the project's central scheduling research question cannot be demonstrated properly.
+
+51. Important Benchmark Question
+
+For each operator, eventually determine:
+
+At what tensor size does GPU execution become worthwhile?
+
+For example, conceptually:
+
+small tensor
+    ↓
+CPU faster
+
+medium tensor
+    ↓
+break-even point
+
+large tensor
+    ↓
+GPU faster
+
+This data can later become part of the scheduler's cost model.
+
+52. Phase 4 — Memory System
+
+After Phase 3, move toward more serious memory management.
+
+Potential work:
+
+Memory pool
+
+Reduce repeated:
+
+cudaMalloc
+cudaFree
+
+operations.
+
+Lifetime analysis
+
+Determine when tensors are no longer needed.
+
+Buffer reuse
+
+Reuse memory between intermediate tensors when safe.
+
+Transfer tracking
+
+Track:
+
+CPU → GPU
+GPU → CPU
+GPU → GPU
+
+transfers.
+
+Memory pressure
+
+Track available/allocated GPU memory.
+
+This becomes directly relevant to resource-aware scheduling.
+
+53. Phase 5 — Graph Optimization
+
+Potential graph-level optimizations:
+
+Operator fusion
+
+For example:
+
+MatMul
+  ↓
+Add
+  ↓
+ReLU
+
+could potentially become a fused execution path.
+
+Dead-node elimination
+
+Remove graph operations whose outputs are never used.
+
+Constant propagation
+
+Where appropriate.
+
+Layout/placement analysis
+
+Determine whether changing tensor placement/layout reduces total execution cost.
+
+Do not implement optimizations without benchmarks showing why they matter.
+
+54. Phase 6 — Resource-Aware Scheduler
+
+This is the project's most important research-oriented phase.
+
+The scheduler should eventually choose:
+
+CPU
+or
+GPU
+
+for each operator.
+
+The decision should account for:
+
+Compute cost
+
+Estimated execution cost.
+
+Transfer cost
+
+Cost of moving tensors:
+
+CPU ↔ GPU
+Memory pressure
+
+Available GPU memory.
+
+Tensor residency
+
+Where inputs currently live.
+
+Historical measurements
+
+Eventually use benchmark/autotuning data.
+
+55. Conceptual Scheduling Model
+
+A simplified cost model could eventually look conceptually like:
+
+Cost(device) =
+    compute_cost(device)
+  + transfer_cost(device)
+  + memory_penalty(device)
+
+Then choose:
+
+device = argmin(Cost(device))
+
+This is only a conceptual starting point.
+
+The actual implementation should be derived from measurements and the runtime's real execution behavior.
+
+56. Important Scheduler Demonstration
+
+The scheduler should be able to produce cases such as:
+
+ReLU
+CPU
+Reason:
+tensor already on CPU
+small workload
+GPU transfer cost > GPU compute savings
+
+versus:
+
+Large MatMul
+GPU
+Reason:
+high arithmetic intensity
+tensor transfer amortized
+GPU compute advantage dominates
+
+This is central to ForgeRT's identity.
+
+57. Phase 7 — Autotuning
+
+Eventually, ForgeRT can learn from actual hardware measurements.
+
+Potentially record:
+
+operator
+shape
+device
+execution time
+transfer time
+memory usage
+
+Then use these measurements to improve scheduling.
+
+For example:
+
+MatMul 16×16
+→ CPU
+
+MatMul 128×128
+→ GPU
+
+MatMul 512×512
+→ GPU
+
+The exact thresholds should come from measurement rather than arbitrary hardcoded values.
+
+58. Phase 8 — Model Import
+
+Only after the runtime and scheduler are meaningful should model import be considered.
+
+Potential direction:
+
+ONNX
+ ↓
+ForgeRT Graph
+ ↓
+ForgeRT Scheduler
+ ↓
+CPU/GPU execution
+
+Do not let ONNX import dominate the project before the runtime itself is strong.
+
+59. Phase 9 — Benchmarking
+
+Eventually benchmark:
+
+CPU-only ForgeRT
+GPU-only ForgeRT
+resource-aware ForgeRT
+potentially PyTorch
+potentially ONNX Runtime
+
+The comparison should be honest and clearly state:
+
+model
+hardware
+tensor shapes
+warmup
+number of iterations
+transfer inclusion/exclusion
+precision
+software versions
+
+Do not make misleading benchmark claims.
+
+60. Phase 10 — Visualization
+
+Potential final visualization could show:
+
+Operation       Device       Compute      Transfer      Total
+--------------------------------------------------------------
+MatMul          GPU          2.1 ms       0.4 ms        2.5 ms
+ReLU            CPU          0.1 ms       0.0 ms        0.1 ms
+Softmax         GPU          0.3 ms       0.2 ms        0.5 ms
+
+And potentially:
+
+CPU ────────────────┐
+                    ├── Graph execution
+GPU ── H2D ─ Kernel ┘
+
+The visualization should make the runtime's scheduling decisions understandable to a judge/interviewer.
+
+61. What NOT to Do
+
+Do not turn ForgeRT into:
+
+a PyTorch replacement
+a full ONNX Runtime clone
+a giant neural-network framework
+an arbitrary collection of CUDA kernels
+an optimization benchmark with no runtime architecture
+a dependency-heavy project
+
+Do not implement features merely because they sound impressive.
+
+The project should remain coherent around:
+
+resource-aware inference on heterogeneous CPU/GPU hardware.
+
+62. One-Week Constraint
+
+The project is being developed under a roughly one-week time constraint.
+
+However:
+
+The project should not be artificially downscaled simply because time is limited.
+
+Instead, prioritize vertical completion of the core concept.
+
+The most valuable eventual demonstration is:
+
+Neural graph
+   ↓
+ForgeRT runtime
+   ↓
+CPU/GPU resource analysis
+   ↓
+Placement decision
+   ↓
+Memory/transfer management
+   ↓
+Execution
+   ↓
+Measured performance
+   ↓
+Explainable scheduling decision
+
+A smaller number of well-integrated components is preferable to a huge number of disconnected features.
+
+63. Current Priority Order
+
+Unless actual repository inspection suggests otherwise, the recommended order is:
+
+1. CUDA Softmax
+2. CUDA LayerNorm
+3. CUDA Add
+4. CUDA graph-level CUDA execution
+5. CPU vs GPU benchmark measurements
+6. Phase 3 audit/completion
+7. Memory pool + tensor lifetime analysis
+8. Graph optimization/fusion
+9. Resource-aware scheduler
+10. Scheduler benchmark/evaluation
+11. Autotuning
+12. Optional model import
+13. Final visualization/demo
+
+The scheduler should not be implemented before enough real execution/transfer measurements exist to make its decisions meaningful.
+
+64. GitHub Contribution Requirement
+
+The user wants to maintain a legitimate GitHub contribution streak.
+
+Therefore, while working on ForgeRT:
+
+Prefer meaningful commits.
+Push completed milestones.
+Do not create fake/no-op commits merely for the streak.
+If a day contains legitimate work, ensure it is committed and pushed.
+Keep the repository clean after milestones.
+
+A good milestone should produce a commit such as:
+
+feat(cuda): add CUDA Softmax operator
+
+rather than meaningless changes.
+
+65. How Future Threads Should Continue
+
+When continuing this project in a new conversation:
+
+Read this context first.
+Inspect the actual repository.
+Check:
+git status
+git log --oneline --decorate -20
+Determine the actual current implementation state.
+Do not assume this document is newer than the repository.
+Treat repository state as the source of truth for implementation details.
+Preserve the CUDA 12.6 + MSVC 14.39 + Ninja + sm_61 build setup.
+Do not undo existing CMake workarounds without a specific reason.
+Work on one coherent milestone at a time.
+Test the new work and the complete regression suite.
+Commit and push meaningful milestones.
+Stop when the requested milestone is complete.
+66. Current Bottom Line
+
+ForgeRT has progressed beyond being a skeleton.
+
+The current implementation already has:
+
+Tensor abstraction
+        ↓
+Operator abstraction
+        ↓
+CPU operators
+        ↓
+DAG graph
+        ↓
+CPU graph execution
+        ↓
+CUDA build infrastructure
+        ↓
+CUDA Tensor memory
+        ↓
+CPU ↔ GPU transfers
+        ↓
+CUDA ReLU
+        ↓
+CUDA tiled MatMul
+
+The next major step is:
+
+CUDA Softmax
+
+Then:
+
+CUDA LayerNorm
+CUDA Add
+CUDA graph execution
+CPU/GPU measurements
+
+The longer-term goal remains:
+
+             ┌───────────────┐
+             │ Neural Graph  │
+             └───────┬───────┘
+                     ↓
+             ┌───────────────┐
+             │ ForgeRT       │
+             │ Scheduler     │
+             └───────┬───────┘
+                     ↓
+          ┌──────────┴──────────┐
+          ↓                     ↓
+       CPU path              GPU path
+          ↓                     ↓
+       Execute              Transfer
+                                ↓
+                             CUDA
+                                ↓
+                         GPU execution
+          └──────────┬──────────┘
+                     ↓
+              Measured result
+                     ↓
+            Cost-model feedback
+
+The project's strongest final story should be:
+
+ForgeRT doesn't assume the GPU is always faster. It measures computation, memory, and transfer costs and uses those resources to make explainable execution-placement decisions.
+
+That is the core idea that all future implementation should support.

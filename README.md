@@ -236,12 +236,18 @@ ctest --test-dir build --output-on-failure
 - ✅ ReLU CUDA kernel (`cuda/kernels/relu_kernel.cu`) — grid-stride loop, sm_61, tested at 1K and 1M elements
 - ✅ `ReLUOp::executeCUDA()` — CUDA backend wired into operator dispatch (`Backend::CUDA` routes to the GPU kernel)
 - ✅ `ReLUOp::supportsBackend()` reports CUDA when built with `FORGERT_CUDA_AVAILABLE`
-- ⏳ CUDA kernels for MatMul, Softmax, LayerNorm, Add — not yet implemented
+- ✅ MatMul CUDA kernel (`cuda/kernels/matmul_kernel.cu`) — tiled multiplication with 16x16 shared memory tiles, sm_61 optimized
+- ✅ `MatMulOp::executeCUDA()` — CUDA backend integration with comprehensive testing
+- ✅ Softmax CUDA kernel (`cuda/kernels/softmax_kernel.cu`) — multi-pass reduction approach, numerically stable
+- ✅ `SoftmaxOp::executeCUDA()` — CUDA backend integration with comprehensive testing
+- ⏳ CUDA kernels for LayerNorm, Add operators — not yet implemented
 - ⏳ Phase 4 Tensor CUDA memory allocation (required before graph-level CUDA execution)
 
-**Test suite: 11/11 passing**
-- 9 CPU test suites (Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×3)
-- ReLUCUDATest — standalone kernel correctness on GTX 1050
+**Test suite: 14/14 passing**
+- 10 CPU test suites (Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×3)
+- ReLUCUDATest — standalone ReLU kernel correctness on GTX 1050
+- MatMulCUDATest — standalone MatMul kernel correctness with tiled approach
+- SoftmaxCUDATest — standalone Softmax kernel correctness with multi-pass reduction
 - ReLUOpCUDATest — full `ReLUOp::execute(Backend::CUDA)` dispatch path
 
 **CUDA configuration:** CUDA 12.6.85 · sm_61 (Pascal) · MSVC 14.39 · Ninja · CMake 4.3

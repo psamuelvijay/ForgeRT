@@ -5,6 +5,12 @@
 #include <algorithm>
 #include <limits>
 
+// When FORGERT_CUDA_AVAILABLE is defined, bring in the extern "C" kernel launcher
+#ifdef FORGERT_CUDA_AVAILABLE
+extern "C" int forgert_softmax_cuda(const float* input, float* output,
+                                    size_t outer_size, size_t inner_size);
+#endif
+
 namespace forgert {
 
 /**
@@ -35,7 +41,11 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU;  // Phase 2: CPU only
+#ifdef FORGERT_CUDA_AVAILABLE
+        return backend == Backend::CPU || backend == Backend::CUDA;
+#else
+        return backend == Backend::CPU;
+#endif
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -87,6 +97,51 @@ public:
             }
         }
     }
+
+#ifdef FORGERT_CUDA_AVAILABLE
+    void executeCUDA(
+        const std::vector<const Tensor*>& inputs,
+        const std::vector<Tensor*>& outputs) override {
+        
+        validateInputCount("SoftmaxOp", 1, inputs.size());
+        validateInputCount("SoftmaxOp outputs", 1, outputs.size());
+
+        const Tensor* input = inputs[0];
+        Tensor* output = outputs[0];
+
+        // Validate devices
+        validateDevice("SoftmaxOp", input, Device::CUDA);
+        validateDevice("SoftmaxOp", output, Device::CUDA);
+
+        // Validate data types
+        validateDtype("SoftmaxOp", input, DataType::Float32);
+        validateDtype("SoftmaxOp", output, DataType::Float32);
+
+        const float* d_input = static_cast<const float*>(input->data());
+        float* d_output = static_cast<float*>(output->data());
+
+        const auto& shape = input->shape();
+        size_t ndim = shape.ndim();
+
+        // Calculate outer_size and inner_size for CUDA kernel
+        size_t inner_size, outer_size;
+        if (ndim == 1) {
+            inner_size = shape.dim(0);
+            outer_size = 1;
+        } else {
+            inner_size = shape.dim(ndim - 1);
+            outer_size = shape.numElements() / inner_size;
+        }
+
+        // Launch CUDA kernel
+        const int err = forgert_softmax_cuda(d_input, d_output, outer_size, inner_size);
+        if (err != 0) {
+            throw std::runtime_error(
+                "SoftmaxOp::executeCUDA: kernel launcher failed (cudaError_t=" +
+                std::to_string(err) + ")");
+        }
+    }
+#endif // FORGERT_CUDA_AVAILABLE
 
 private:
     /**
