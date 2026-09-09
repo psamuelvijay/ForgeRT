@@ -2,6 +2,12 @@
 
 #include "forgert/operator/operator.h"
 
+// When FORGERT_CUDA_AVAILABLE is defined, bring in the extern "C" kernel launcher
+#ifdef FORGERT_CUDA_AVAILABLE
+extern "C" int forgert_matmul_cuda(const float* A, const float* B, float* C,
+                                   size_t M, size_t K, size_t N);
+#endif
+
 namespace forgert {
 
 /**
@@ -34,7 +40,11 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU;  // Phase 2: CPU only
+#ifdef FORGERT_CUDA_AVAILABLE
+        return backend == Backend::CPU || backend == Backend::CUDA;
+#else
+        return backend == Backend::CPU;
+#endif
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -128,6 +138,48 @@ public:
             }
         }
     }
+
+#ifdef FORGERT_CUDA_AVAILABLE
+    void executeCUDA(
+        const std::vector<const Tensor*>& inputs,
+        const std::vector<Tensor*>& outputs) override {
+        
+        validateInputCount("MatMulOp", 2, inputs.size());
+        validateInputCount("MatMulOp outputs", 1, outputs.size());
+
+        const Tensor* a = inputs[0];
+        const Tensor* b = inputs[1];
+        Tensor* c = outputs[0];
+
+        // Validate devices
+        validateDevice("MatMulOp", a, Device::CUDA);
+        validateDevice("MatMulOp", b, Device::CUDA);
+        validateDevice("MatMulOp", c, Device::CUDA);
+
+        // Validate data types
+        validateDtype("MatMulOp", a, DataType::Float32);
+        validateDtype("MatMulOp", b, DataType::Float32);
+        validateDtype("MatMulOp", c, DataType::Float32);
+
+        // Get dimensions
+        size_t M = a->shape().dim(0);
+        size_t K = a->shape().dim(1);
+        size_t N = b->shape().dim(1);
+
+        // Get device pointers
+        const float* d_a = static_cast<const float*>(a->data());
+        const float* d_b = static_cast<const float*>(b->data());
+        float* d_c = static_cast<float*>(c->data());
+
+        // Launch CUDA kernel
+        const int err = forgert_matmul_cuda(d_a, d_b, d_c, M, K, N);
+        if (err != 0) {
+            throw std::runtime_error(
+                "MatMulOp::executeCUDA: kernel launcher failed (cudaError_t=" +
+                std::to_string(err) + ")");
+        }
+    }
+#endif // FORGERT_CUDA_AVAILABLE
 };
 
 } // namespace forgert
