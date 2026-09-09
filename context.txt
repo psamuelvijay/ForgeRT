@@ -883,39 +883,32 @@ reduction
 
 This gives ForgeRT multiple representative CUDA kernel patterns.
 
-42. CUDA Softmax Requirements
+42. CUDA LayerNorm Requirements
 
-The CUDA Softmax implementation should preserve the CPU operator's semantics.
+The CUDA LayerNorm implementation should preserve the CPU operator's semantics.
 
 Important requirements:
 
 Last-dimension semantics
 
-Softmax should operate along the last tensor dimension, consistent with the CPU implementation.
+LayerNorm should operate along the last tensor dimension, consistent with the CPU implementation.
 
-Numerical stability
+Two-pass algorithm
 
-Use:
-
-x - max(x)
-
-before exponentiation.
-
-Avoid naïve:
-
-exp(x)
-
-without stabilization.
+Use the established two-pass approach:
+1. Compute mean
+2. Compute variance  
+3. Normalize: (x - mean) / sqrt(variance + epsilon)
 
 Actual CUDA reduction
 
 Do not merely implement a serial CPU-like algorithm inside a CUDA kernel.
 
-The CUDA implementation should demonstrate an appropriate reduction strategy.
+The CUDA implementation should demonstrate appropriate dual reduction strategy.
 
 Operator integration
 
-SoftmaxOp should support:
+LayerNormOp should support:
 
 Backend::CUDA
 
@@ -929,44 +922,22 @@ CPU/CUDA equivalence
 
 Results should be compared against the CPU implementation with an appropriate floating-point tolerance.
 
-43. CUDA Softmax Testing
+43. CUDA LayerNorm Testing
 
 Tests should cover at least:
 
 small tensors
-larger tensors
+larger tensors  
 multiple rows
 last-dimension behavior
-numerical stability
+numerical stability with small/large values
 CPU vs CUDA equivalence
 invalid device/backend cases
 relevant edge cases
 
-The agent should inspect existing CPU Softmax tests and existing CUDA test conventions before deciding exact test structure.
+The agent should inspect existing CPU LayerNorm tests and existing CUDA test conventions before deciding exact test structure.
 
-44. Important Instruction for Coding Agent
-
-The coding agent is powerful and has full repository access.
-
-Therefore prompts should not dictate every line of implementation.
-
-Instead:
-
-Explain the current state.
-Give the objective.
-State architectural constraints.
-Define acceptance criteria.
-Tell the agent to inspect the actual repository first.
-Let the agent choose implementation details.
-Require tests.
-Require full regression testing.
-Require documentation updates where appropriate.
-Require a meaningful commit and push.
-Tell it to stop after the requested milestone.
-
-This avoids unnecessary micromanagement while keeping the scope controlled.
-
-45. Recommended CUDA Softmax Agent Prompt
+44. Recommended CUDA LayerNorm Agent Prompt
 
 Use a prompt along these lines:
 
@@ -982,42 +953,43 @@ CURRENT STATE:
 - CUDA Tensor allocation/transfers are working.
 - CUDA ReLU is implemented and tested.
 - CUDA MatMul is implemented and tested.
+- CUDA Softmax is implemented and tested.
 - Target GPU: GTX 1050 4 GB, Pascal, sm_61.
 - CUDA version: 12.6.
 - Host compiler: MSVC 14.39.
 - Ninja is the working CMake generator.
 - CMake 4.3 CUDA/MSVC workarounds already exist and must not be broken.
-- CPU Softmax is already implemented and tested.
+- CPU LayerNorm is already implemented and tested.
+- 14/14 tests currently passing.
 
 TASK:
-Implement CUDA Softmax as the next focused Phase 3 milestone.
+Implement CUDA LayerNorm as the next focused Phase 3 milestone.
 
 OBJECTIVE:
-Add a real CUDA implementation of the existing Softmax operator and integrate it cleanly into ForgeRT's existing backend abstraction.
+Add a real CUDA implementation of the existing LayerNorm operator and integrate it cleanly into ForgeRT's existing backend abstraction.
 
 REQUIREMENTS:
-- Preserve the CPU Softmax semantics exactly, especially last-dimension behavior.
-- Maintain numerical stability using max subtraction before exponentiation.
-- Use a genuine CUDA reduction approach rather than a CPU-like serial implementation.
+- Preserve the CPU LayerNorm semantics exactly, especially last-dimension behavior and two-pass algorithm.
+- Use a genuine CUDA dual reduction approach (mean, then variance) rather than a CPU-like serial implementation.
 - Make the implementation appropriate for Pascal/sm_61 and CUDA 12.6.
-- Integrate through the existing SoftmaxOp/backend dispatch architecture.
+- Integrate through the existing LayerNormOp/backend dispatch architecture.
 - Keep CUDA-specific declarations appropriately guarded.
-- Follow the existing CUDA ReLU/MatMul/Tensor architecture and error-handling conventions.
+- Follow the existing CUDA ReLU/MatMul/Softmax architecture and error-handling conventions.
 - Do not introduce unnecessary dependencies or unrelated architectural changes.
 - Add focused CUDA unit/integration tests.
 - Test CPU vs CUDA numerical equivalence with sensible floating-point tolerances.
 - Include small and larger inputs, multiple rows, last-dimension behavior, numerical-stability cases, and relevant error paths.
 - Run the complete test suite, not only the new tests.
-- Preserve all existing Phase 1, Phase 2, ReLU, Tensor, and MatMul functionality.
+- Preserve all existing Phase 1, Phase 2, and CUDA functionality.
 - Update documentation/status only where appropriate.
 - Keep the implementation interview-explainable.
 
 IMPORTANT:
-Do not implement LayerNorm, Add, scheduler, memory pool, graph optimization, benchmarking framework, ONNX import, or other future-phase work in this task.
+Do not implement Add, scheduler, memory pool, graph optimization, benchmarking framework, ONNX import, or other future-phase work in this task.
 
 Before finishing:
 1. Inspect git status and recent commits.
-2. Implement CUDA Softmax.
+2. Implement CUDA LayerNorm.
 3. Add tests.
 4. Build with the known working CUDA 12.6 + MSVC 14.39 + Ninja + sm_61 configuration.
 5. Run the full CTest suite.
@@ -1026,12 +998,10 @@ Before finishing:
 8. Push it to the ForgeRT GitHub repository.
 9. Report exactly what changed, tests run/results, commit hash, and git status.
 10. Stop after this milestone.
-46. After CUDA Softmax
+45. After CUDA LayerNorm
 
-Once Softmax is stable, the next Phase 3 sequence should be:
+Once LayerNorm is stable, the next Phase 3 sequence should be:
 
-CUDA Softmax
-      ↓
 CUDA LayerNorm
       ↓
 CUDA Add
@@ -1044,23 +1014,7 @@ Phase 3 completion audit
 
 This sequence is preferable to jumping directly into the scheduler.
 
-47. CUDA LayerNorm
-
-After Softmax, implement CUDA LayerNorm.
-
-Reason:
-
-LayerNorm combines:
-
-reductions
-normalization
-elementwise operations
-
-It provides another useful CUDA workload and will eventually be important for transformer-style workloads.
-
-However, implementation should still follow the actual CPU semantics already established in the repository.
-
-48. CUDA Add
+46. CUDA Add
 
 After LayerNorm:
 
@@ -1076,7 +1030,7 @@ This makes Add a useful example for demonstrating:
 
 GPU is not always the best execution location.
 
-49. CUDA Graph Execution
+47. CUDA Graph Execution
 
 After the major CUDA operators are available, validate an actual graph executing across the CUDA backend.
 
@@ -1104,7 +1058,9 @@ Correct final output
 
 This is more meaningful than having isolated kernel tests only.
 
-50. CPU vs GPU Benchmarking
+Note: End-to-end CUDA graph tests already exist (commit 23798e7) but should be expanded once all CUDA operators are available.
+
+48. CPU vs GPU Benchmarking
 
 This is a major future milestone.
 
