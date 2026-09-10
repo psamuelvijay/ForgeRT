@@ -15,20 +15,20 @@ namespace forgert {
 
 /**
  * @brief Softmax activation operator
- * 
+ *
  * Applies softmax along the last dimension:
  *   softmax(x_i) = exp(x_i - max(x)) / sum(exp(x_j - max(x)))
- * 
+ *
  * Uses numerically stable implementation with max subtraction to prevent overflow.
- * 
+ *
  * Common use case: [batch, classes] -> [batch, classes]
  *   Each row is independently normalized to a probability distribution.
- * 
+ *
  * Phase 2: CPU implementation only, Float32 only
  * Phase 3: CUDA implementation
- * 
+ *
  * Shape: Input and output have identical shapes
- * 
+ *
  * Examples:
  *   [3, 4] -> [3, 4]  ✓ (softmax applied to each of 3 rows independently)
  *   [10] -> [10]      ✓ (single softmax over 10 elements)
@@ -50,9 +50,9 @@ public:
 
     std::vector<TensorShape> inferOutputShapes(
         const std::vector<TensorShape>& input_shapes) const override {
-        
+
         validateInputCount("SoftmaxOp", 1, input_shapes.size());
-        
+
         // Output shape is identical to input shape
         return {input_shapes[0]};
     }
@@ -60,7 +60,7 @@ public:
     void executeCPU(
         const std::vector<const Tensor*>& inputs,
         const std::vector<Tensor*>& outputs) override {
-        
+
         validateInputCount("SoftmaxOp", 1, inputs.size());
         validateInputCount("SoftmaxOp outputs", 1, outputs.size());
 
@@ -102,7 +102,7 @@ public:
     void executeCUDA(
         const std::vector<const Tensor*>& inputs,
         const std::vector<Tensor*>& outputs) override {
-        
+
         validateInputCount("SoftmaxOp", 1, inputs.size());
         validateInputCount("SoftmaxOp outputs", 1, outputs.size());
 
@@ -146,10 +146,10 @@ public:
 private:
     /**
      * @brief Apply numerically stable softmax to a 1D array
-     * 
+     *
      * Uses max subtraction to prevent overflow:
      *   softmax(x_i) = exp(x_i - max(x)) / sum(exp(x_j - max(x)))
-     * 
+     *
      * @param input Input array
      * @param output Output array (can be same as input)
      * @param size Number of elements

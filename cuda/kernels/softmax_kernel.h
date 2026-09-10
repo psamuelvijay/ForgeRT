@@ -8,7 +8,7 @@
  *   softmax(x_i) = exp(x_i - max(x)) / sum(exp(x_j - max(x)))
  *
  * Input/output tensor is treated as [outer_size, inner_size] where:
- * - outer_size = total_elements / last_dim_size  
+ * - outer_size = total_elements / last_dim_size
  * - inner_size = last_dim_size (the dimension to normalize over)
  *
  * Each of the outer_size rows is independently normalized.
