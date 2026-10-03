@@ -103,3 +103,6 @@ docs/latex/
 test_output/
 test_results/
 Testing/
+
+# AI/agent context files (not part of the project, machine-local)
+Context/

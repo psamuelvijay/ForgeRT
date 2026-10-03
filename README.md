@@ -48,6 +48,16 @@ Result Tensors
 | **Softmax** | Softmax activation (last dimension) | `[Batch,Classes] → [Batch,Classes]` | ✅ Complete |
 | **LayerNorm** | Layer normalization (last dimension) | `[Batch,Features] → [Batch,Features]` | ✅ Complete |
 
+### Phase 3: CUDA Backend
+
+| Operator | CUDA Kernel | Backend Integration | CPU vs CUDA Tests | Status |
+|----------|-------------|---------------------|-------------------|--------|
+| **ReLU** | ✅ Grid-stride, sm_61 optimized | ✅ `executeCUDA()` | ✅ Numerical equivalence | ✅ Complete |
+| **MatMul** | ✅ 16×16 tiled shared memory | ✅ `executeCUDA()` | ✅ Numerical equivalence | ✅ Complete |
+| **Softmax** | ✅ Multi-pass reduction | ✅ `executeCUDA()` | ✅ Numerical equivalence | ✅ Complete |
+| **LayerNorm** | ✅ Dual-reduction (mean+var) | ✅ `executeCUDA()` | ✅ Numerical equivalence | ✅ Complete |
+| **Add** | ⏳ Deferred | ⏳ Deferred | ⏳ Deferred | 🔄 Phase 4 |
+
 **Example:**
 ```cpp
 // Create computation graph
@@ -231,7 +241,7 @@ ctest --test-dir build --output-on-failure
 - ✅ CPU benchmark harness
 - ⏳ Conv2D — explicitly deferred
 
-**Phase 3: CUDA Backend** 🔧 In Progress
+**Phase 3: CUDA Backend** ✅ Complete
 - ✅ Build system: CMake 4.x + MSVC 14.39 + Ninja + CUDA 12.6 + sm_61 working
 - ✅ ReLU CUDA kernel (`cuda/kernels/relu_kernel.cu`) — grid-stride loop, sm_61, tested at 1K and 1M elements
 - ✅ `ReLUOp::executeCUDA()` — CUDA backend wired into operator dispatch (`Backend::CUDA` routes to the GPU kernel)
@@ -240,14 +250,19 @@ ctest --test-dir build --output-on-failure
 - ✅ `MatMulOp::executeCUDA()` — CUDA backend integration with comprehensive testing
 - ✅ Softmax CUDA kernel (`cuda/kernels/softmax_kernel.cu`) — multi-pass reduction approach, numerically stable
 - ✅ `SoftmaxOp::executeCUDA()` — CUDA backend integration with comprehensive testing
-- ⏳ CUDA kernels for LayerNorm, Add operators — not yet implemented
-- ⏳ Phase 4 Tensor CUDA memory allocation (required before graph-level CUDA execution)
+- ✅ LayerNorm CUDA kernel (`cuda/kernels/layernorm_kernel.cu`) — dual-reduction approach (mean + variance), block-level shared memory
+- ✅ `LayerNormOp::executeCUDA()` — CUDA backend integration with comprehensive testing
+- ⏳ Add CUDA kernel — deferred to Phase 4 (simple element-wise operation, lower priority)
 
-**Test suite: 14/14 passing**
-- 10 CPU test suites (Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×3)
-- ReLUCUDATest — standalone ReLU kernel correctness on GTX 1050
-- MatMulCUDATest — standalone MatMul kernel correctness with tiled approach
-- SoftmaxCUDATest — standalone Softmax kernel correctness with multi-pass reduction
+**Test suite: 17/17 passing** ✅
+- 11 CPU test suites (Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×5)
+- 6 CUDA test suites:
+  - ReLUCUDATest — standalone ReLU kernel correctness on GTX 1050
+  - MatMulCUDATest — standalone MatMul kernel correctness with tiled approach
+  - SoftmaxCUDATest — standalone Softmax kernel correctness with multi-pass reduction  
+  - LayerNormCUDATest — standalone LayerNorm kernel correctness with dual-reduction
+  - ReLUOpCUDATest — operator-level CUDA integration testing
+  - LayerNormOpCUDATest — operator-level CUDA integration testing
 - ReLUOpCUDATest — full `ReLUOp::execute(Backend::CUDA)` dispatch path
 
 **CUDA configuration:** CUDA 12.6.85 · sm_61 (Pascal) · MSVC 14.39 · Ninja · CMake 4.3

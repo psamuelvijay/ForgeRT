@@ -2,11 +2,17 @@
 
 #include "forgert/operator/operator.h"
 
+// Forward declaration for CUDA kernel (extern "C" so MSVC can link it)
+extern "C" int forgert_add_cuda(const float* a, const float* b, float* c,
+                                 const size_t* a_dims, const size_t* b_dims,
+                                 const size_t* c_dims, int ndim,
+                                 size_t c_size);
+
 namespace forgert {
 
 /**
  * @brief Element-wise addition operator: C = A + B
- * 
+ *
  * Supports broadcasting when shapes are compatible.
  * Phase 1: CPU implementation only, Float32 only
  * Phase 3: CUDA implementation
@@ -31,7 +37,7 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU;  // Phase 1: CPU only
+        return backend == Backend::CPU || backend == Backend::CUDA;  // Phase 3: CPU + CUDA
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -81,6 +87,58 @@ public:
         } else {
             // Broadcasting case
             addBroadcast(a, b, c);
+        }
+    }
+
+    void executeCUDA(
+        const std::vector<const Tensor*>& inputs,
+        const std::vector<Tensor*>& outputs) override {
+
+        validateInputCount("AddOp", 2, inputs.size());
+        validateInputCount("AddOp outputs", 1, outputs.size());
+
+        const Tensor* a = inputs[0];
+        const Tensor* b = inputs[1];
+        Tensor* c = outputs[0];
+
+        validateDevice("AddOp", a, Device::CUDA);
+        validateDevice("AddOp", b, Device::CUDA);
+        validateDevice("AddOp", c, Device::CUDA);
+
+        validateDtype("AddOp", a, DataType::Float32);
+        validateDtype("AddOp", b, DataType::Float32);
+        validateDtype("AddOp", c, DataType::Float32);
+
+        const TensorShape& sa = a->shape();
+        const TensorShape& sb = b->shape();
+        const TensorShape& sc = c->shape();
+
+        // Build padded dim arrays at the common rank (sc.ndim())
+        size_t ndim = sc.ndim();
+        if (ndim == 0) return;  // degenerate
+
+        // Left-pad A and B with 1s to match the output rank
+        std::vector<size_t> a_dims(ndim, 1);
+        std::vector<size_t> b_dims(ndim, 1);
+        std::vector<size_t> c_dims(ndim);
+
+        size_t a_offset = ndim - sa.ndim();
+        size_t b_offset = ndim - sb.ndim();
+        for (size_t d = 0; d < sa.ndim(); ++d) a_dims[a_offset + d] = sa.dim(d);
+        for (size_t d = 0; d < sb.ndim(); ++d) b_dims[b_offset + d] = sb.dim(d);
+        for (size_t d = 0; d < ndim; ++d)      c_dims[d]             = sc.dim(d);
+
+        const float* a_ptr = static_cast<const float*>(a->data());
+        const float* b_ptr = static_cast<const float*>(b->data());
+        float*       c_ptr = static_cast<float*>(c->data());
+
+        int result = forgert_add_cuda(a_ptr, b_ptr, c_ptr,
+                                      a_dims.data(), b_dims.data(), c_dims.data(),
+                                      static_cast<int>(ndim),
+                                      sc.numElements());
+        if (result != 0) {
+            throw std::runtime_error(
+                "AddOp CUDA kernel failed with cudaError_t=" + std::to_string(result));
         }
     }
 

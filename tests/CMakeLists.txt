@@ -81,6 +81,15 @@ set_target_properties(test_softmax_cuda PROPERTIES
     CUDA_ARCHITECTURES 61
 )
 
+# LayerNorm CUDA kernel tests (Phase 3) — standalone kernel correctness
+add_executable(test_layernorm_cuda test_layernorm_cuda.cu)
+target_include_directories(test_layernorm_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_layernorm_cuda PRIVATE forgert_cuda)
+set_target_properties(test_layernorm_cuda PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
 # ReLU operator CUDA integration tests (Phase 3) — exercises the full
 # ReLUOp::execute(Backend::CUDA) dispatch path through the operator abstraction
 add_executable(test_relu_op_cuda test_relu_op_cuda.cu)
@@ -105,6 +114,7 @@ add_test(NAME GraphSoftmaxTest COMMAND test_graph_softmax)
 add_test(NAME ReLUCUDATest     COMMAND test_relu_cuda)
 add_test(NAME MatMulCUDATest   COMMAND test_matmul_cuda)
 add_test(NAME SoftmaxCUDATest  COMMAND test_softmax_cuda)
+add_test(NAME LayerNormCUDATest COMMAND test_layernorm_cuda)
 add_test(NAME ReLUOpCUDATest   COMMAND test_relu_op_cuda)
 
 message(STATUS "ForgeRT tests configured")

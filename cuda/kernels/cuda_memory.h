@@ -10,6 +10,10 @@
  *
  * cudaMemcpy direction constants are replicated here as an enum so callers
  * do not need cuda_runtime.h either.
+ *
+ * NOTE: The enum class must be declared OUTSIDE the extern "C" block.
+ * On CUDA 12.6 + MSVC 14.39 on Windows, having enum class inside an
+ * extern "C" block causes cudafe++ to crash with ACCESS_VIOLATION.
  */
 
 enum class CudaMemcpyKind {

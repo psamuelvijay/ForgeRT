@@ -53,8 +53,16 @@ endif()
 
 # CUDA compiler flags
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
-set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -g -G")
-set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -use_fast_math")
+# Workaround: cudafe++ on CUDA 12.6 + MSVC 14.39 on Windows crashes when
+# its working directory path is long (> ~20 chars). Redirect intermediate
+# files to a short path via --keep-dir to avoid ACCESS_VIOLATION.
+# The directory must exist before compilation starts.
+if(MSVC)
+    file(MAKE_DIRECTORY "C:/tmp_cu")
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --keep-dir C:/tmp_cu")
+endif()
+set(CMAKE_CUDA_FLAGS_DEBUG   "")
+set(CMAKE_CUDA_FLAGS_RELEASE "-O3 -use_fast_math")
 
 # -----------------------------------------------------------------------
 # Workaround: CMake 4.x Windows-NVIDIA-CUDA.cmake appends

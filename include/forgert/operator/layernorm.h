@@ -4,6 +4,11 @@
 #include <cmath>
 #include <algorithm>
 
+// Forward declaration for CUDA kernel
+extern "C" int forgert_layernorm_cuda(const float* input, float* output,
+                                      size_t outer_size, size_t inner_size,
+                                      float epsilon);
+
 namespace forgert {
 
 /**
@@ -46,7 +51,7 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU;  // Phase 2: CPU only
+        return backend == Backend::CPU || backend == Backend::CUDA;  // Phase 3: CPU + CUDA
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -95,6 +100,48 @@ public:
                 const float* row_in = in_data + i * inner_size;
                 float* row_out = out_data + i * inner_size;
                 applyLayerNorm1D(row_in, row_out, inner_size, epsilon_);
+            }
+        }
+    }
+
+    void executeCUDA(
+        const std::vector<const Tensor*>& inputs,
+        const std::vector<Tensor*>& outputs) override {
+        
+        validateInputCount("LayerNormOp", 1, inputs.size());
+        validateInputCount("LayerNormOp outputs", 1, outputs.size());
+
+        const Tensor* input = inputs[0];
+        Tensor* output = outputs[0];
+
+        // Validate devices
+        validateDevice("LayerNormOp", input, Device::CUDA);
+        validateDevice("LayerNormOp", output, Device::CUDA);
+
+        // Phase 3: Float32 only
+        validateDtype("LayerNormOp", input, DataType::Float32);
+        validateDtype("LayerNormOp", output, DataType::Float32);
+
+        const float* in_data = static_cast<const float*>(input->data());
+        float* out_data = static_cast<float*>(output->data());
+
+        const auto& shape = input->shape();
+        size_t ndim = shape.ndim();
+
+        if (ndim == 1) {
+            // 1D case: normalize all elements
+            int result = forgert_layernorm_cuda(in_data, out_data, 1, shape.dim(0), epsilon_);
+            if (result != 0) {
+                throw std::runtime_error("LayerNormOp CUDA kernel failed with code: " + std::to_string(result));
+            }
+        } else {
+            // Multi-dimensional case: normalize along the last dimension
+            size_t inner_size = shape.dim(ndim - 1);
+            size_t outer_size = shape.numElements() / inner_size;
+
+            int result = forgert_layernorm_cuda(in_data, out_data, outer_size, inner_size, epsilon_);
+            if (result != 0) {
+                throw std::runtime_error("LayerNormOp CUDA kernel failed with code: " + std::to_string(result));
             }
         }
     }
