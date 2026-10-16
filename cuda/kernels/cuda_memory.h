@@ -37,4 +37,9 @@ int forgert_cuda_memcpy(void* dst, const void* src, size_t bytes,
 /* Zero-fill `bytes` bytes of device memory. */
 int forgert_cuda_memset(void* ptr, int value, size_t bytes);
 
+/* Query available CUDA device memory (Phase 4).
+ * Sets *free_bytes and *total_bytes to the free and total device memory.
+ * Returns 0 on success or the raw cudaError_t cast to int. */
+int forgert_cuda_mem_info(size_t* free_bytes, size_t* total_bytes);
+
 } // extern "C"

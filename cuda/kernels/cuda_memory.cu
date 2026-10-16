@@ -38,4 +38,11 @@ int forgert_cuda_memset(void* ptr, int value, size_t bytes) {
     return static_cast<int>(cudaMemset(ptr, value, bytes));
 }
 
+int forgert_cuda_mem_info(size_t* free_bytes, size_t* total_bytes) {
+    if (!free_bytes || !total_bytes) {
+        return static_cast<int>(cudaErrorInvalidValue);
+    }
+    return static_cast<int>(cudaMemGetInfo(free_bytes, total_bytes));
+}
+
 } // extern "C"

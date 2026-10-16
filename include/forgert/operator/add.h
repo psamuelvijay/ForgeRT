@@ -3,10 +3,14 @@
 #include "forgert/operator/operator.h"
 
 // Forward declaration for CUDA kernel (extern "C" so MSVC can link it)
+// Guard ensures CPU-only builds don't generate a linker dependency on the
+// CUDA kernel symbol.
+#ifdef FORGERT_CUDA_AVAILABLE
 extern "C" int forgert_add_cuda(const float* a, const float* b, float* c,
                                  const size_t* a_dims, const size_t* b_dims,
                                  const size_t* c_dims, int ndim,
                                  size_t c_size);
+#endif
 
 namespace forgert {
 
@@ -37,7 +41,11 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU || backend == Backend::CUDA;  // Phase 3: CPU + CUDA
+#ifdef FORGERT_CUDA_AVAILABLE
+        return backend == Backend::CPU || backend == Backend::CUDA;
+#else
+        return backend == Backend::CPU;
+#endif
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -94,7 +102,7 @@ public:
         const std::vector<const Tensor*>& inputs,
         const std::vector<Tensor*>& outputs) override {
 
-        validateInputCount("AddOp", 2, inputs.size());
+#ifdef FORGERT_CUDA_AVAILABLE
         validateInputCount("AddOp outputs", 1, outputs.size());
 
         const Tensor* a = inputs[0];
@@ -140,6 +148,10 @@ public:
             throw std::runtime_error(
                 "AddOp CUDA kernel failed with cudaError_t=" + std::to_string(result));
         }
+#else
+        (void)inputs; (void)outputs;
+        throw std::runtime_error("AddOp::executeCUDA: FORGERT_CUDA_AVAILABLE not defined");
+#endif
     }
 
 private:

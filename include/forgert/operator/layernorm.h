@@ -5,9 +5,13 @@
 #include <algorithm>
 
 // Forward declaration for CUDA kernel
+// Guard ensures CPU-only builds don't generate a linker dependency on the
+// CUDA kernel symbol.
+#ifdef FORGERT_CUDA_AVAILABLE
 extern "C" int forgert_layernorm_cuda(const float* input, float* output,
                                       size_t outer_size, size_t inner_size,
                                       float epsilon);
+#endif
 
 namespace forgert {
 
@@ -51,7 +55,11 @@ public:
     }
 
     bool supportsBackend(Backend backend) const override {
-        return backend == Backend::CPU || backend == Backend::CUDA;  // Phase 3: CPU + CUDA
+#ifdef FORGERT_CUDA_AVAILABLE
+        return backend == Backend::CPU || backend == Backend::CUDA;
+#else
+        return backend == Backend::CPU;
+#endif
     }
 
     std::vector<TensorShape> inferOutputShapes(
@@ -108,6 +116,7 @@ public:
         const std::vector<const Tensor*>& inputs,
         const std::vector<Tensor*>& outputs) override {
         
+#ifdef FORGERT_CUDA_AVAILABLE
         validateInputCount("LayerNormOp", 1, inputs.size());
         validateInputCount("LayerNormOp outputs", 1, outputs.size());
 
@@ -144,6 +153,10 @@ public:
                 throw std::runtime_error("LayerNormOp CUDA kernel failed with code: " + std::to_string(result));
             }
         }
+#else
+        (void)inputs; (void)outputs;
+        throw std::runtime_error("LayerNormOp::executeCUDA: FORGERT_CUDA_AVAILABLE not defined");
+#endif
     }
 
 private:

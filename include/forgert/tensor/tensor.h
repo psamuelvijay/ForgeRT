@@ -2,6 +2,7 @@
 
 #include "forgert/tensor/shape.h"
 #include "forgert/tensor/dtype.h"
+#include "forgert/tensor/device.h"
 #include <memory>
 #include <cstring>
 #include <stdexcept>
@@ -15,14 +16,6 @@
 #endif
 
 namespace forgert {
-
-/**
- * @brief Memory location for tensor data
- */
-enum class Device {
-    CPU,    // Host memory allocated with std::malloc
-    CUDA    // GPU device memory allocated with cudaMalloc
-};
 
 /**
  * @brief Tensor abstraction for ForgeRT
@@ -87,6 +80,9 @@ public:
                 "(link against forgert_cuda)");
 #endif
         }
+        
+        // Track allocation (Phase 4)
+        recordAllocation(num_bytes);
     }
 
     /**
@@ -243,6 +239,7 @@ public:
         // Both CPU
         if (device_ == Device::CPU && dst.device_ == Device::CPU) {
             std::memcpy(dst.data_, data_, nb);
+            recordTransfer(Device::CPU, Device::CPU, nb);
             return;
         }
 
@@ -261,6 +258,9 @@ public:
                 "Tensor::copyTo: cudaMemcpy failed (cudaError_t=" +
                 std::to_string(err) + ")");
         }
+        
+        // Track transfer (Phase 4)
+        recordTransfer(device_, dst.device_, nb);
 #else
         throw std::runtime_error(
             "Tensor::copyTo: CUDA transfers require FORGERT_CUDA_AVAILABLE");
@@ -276,16 +276,28 @@ private:
 
     void cleanup() noexcept {
         if (!owns_memory_ || !data_) return;
+        
+        // Track deallocation (Phase 4)
+        const size_t nb = numBytes();
+        
         if (device_ == Device::CPU) {
             std::free(data_);
+            recordDeallocation(Device::CPU, nb);
         } else {
 #ifdef FORGERT_CUDA_AVAILABLE
             forgert_cuda_free(data_);  // ignore return; can't throw in dtor
+            recordDeallocation(Device::CUDA, nb);
 #endif
         }
         data_        = nullptr;
         owns_memory_ = false;
     }
+    
+    // Phase 4: Memory tracking helpers (implemented out-of-line to avoid
+    // including memory_stats.h here, which would create circular dependency)
+    void recordAllocation(size_t bytes) const;
+    void recordDeallocation(Device device, size_t bytes) const;
+    void recordTransfer(Device src, Device dst, size_t bytes) const;
 };
 
 } // namespace forgert

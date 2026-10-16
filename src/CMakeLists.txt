@@ -1,14 +1,20 @@
 # ForgeRT Core Library
 
 set(FORGERT_SOURCES
-    # Tensor sources will be added here
-    # Graph sources will be added here
-    # Runtime sources will be added here
+    # Memory (Phase 4)
+    memory/memory_stats.cpp
+
+    # Tensor (Phase 4 - instrumented for tracking)
+    tensor/tensor.cpp
 )
 
-# Create core library (placeholder for now)
-# add_library(forgert ${FORGERT_SOURCES})
-# target_include_directories(forgert PUBLIC ${FORGERT_INCLUDE_DIR})
-# target_link_libraries(forgert PUBLIC forgert_cuda)
+# Create core library (CPU-only: no CUDA dependency)
+# CUDA tests link forgert_cuda separately.
+# The forgert_cuda target adds FORGERT_CUDA_AVAILABLE when linked,
+# which is needed for CUDA tensor tracking — but the tracking
+# infrastructure itself is pure C++ and needs no CUDA headers.
+add_library(forgert ${FORGERT_SOURCES})
+target_include_directories(forgert PUBLIC ${FORGERT_INCLUDE_DIR})
 
 message(STATUS "ForgeRT core library configured")
+
