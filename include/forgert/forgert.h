@@ -29,3 +29,6 @@
 
 // Graph
 #include "forgert/graph/graph.h"
+
+// Graph optimizer (Phase 5)
+#include "forgert/graph/optimizer.h"

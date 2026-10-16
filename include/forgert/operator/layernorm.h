@@ -54,6 +54,10 @@ public:
         return "LayerNorm";
     }
 
+    std::unique_ptr<Operator> clone() const override {
+        return std::make_unique<LayerNormOp>(epsilon_);
+    }
+
     bool supportsBackend(Backend backend) const override {
 #ifdef FORGERT_CUDA_AVAILABLE
         return backend == Backend::CPU || backend == Backend::CUDA;

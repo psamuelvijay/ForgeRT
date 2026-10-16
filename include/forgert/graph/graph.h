@@ -275,8 +275,50 @@ public:
     size_t numInputs() const { return input_ids_.size(); }
     size_t numOutputs() const { return output_ids_.size(); }
     size_t numNodes() const { return nodes_.size(); }
-    const std::vector<size_t>& getInputIds() const { return input_ids_; }
+    const std::vector<size_t>& getInputIds()  const { return input_ids_; }
     const std::vector<size_t>& getOutputIds() const { return output_ids_; }
+
+    // Node-level introspection (read-only)
+    const std::vector<std::unique_ptr<GraphNode>>& getNodes() const { return nodes_; }
+
+    // Value metadata accessors (used by GraphOptimizer to rebuild graphs)
+    TensorShape getValueShape(size_t value_id) const {
+        auto it = value_shapes_.find(value_id);
+        if (it == value_shapes_.end()) {
+            throw std::invalid_argument(
+                "Graph::getValueShape: value " + std::to_string(value_id) +
+                " does not exist");
+        }
+        return it->second;
+    }
+
+    DataType getValueDtype(size_t value_id) const {
+        auto it = value_dtypes_.find(value_id);
+        if (it == value_dtypes_.end()) {
+            throw std::invalid_argument(
+                "Graph::getValueDtype: value " + std::to_string(value_id) +
+                " does not exist");
+        }
+        return it->second;
+    }
+
+    std::string getValueName(size_t value_id) const {
+        auto it = value_names_.find(value_id);
+        return (it != value_names_.end()) ? it->second : "";
+    }
+
+    /**
+     * @brief Expose topological execution order to the optimizer.
+     *
+     * Returns the same ordering that execute() uses internally.
+     * The optimizer uses this to walk nodes in reverse order for the
+     * backward reachability pass.
+     *
+     * @throws std::runtime_error if the graph has a cycle.
+     */
+    std::vector<size_t> getExecutionOrder() const {
+        return computeExecutionOrder();
+    }
 
 private:
     /**

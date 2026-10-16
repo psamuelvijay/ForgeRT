@@ -6,6 +6,9 @@ set(FORGERT_SOURCES
 
     # Tensor (Phase 4 - instrumented for tracking)
     tensor/tensor.cpp
+
+    # Graph optimizer (Phase 5 - dead-node elimination)
+    graph/optimizer.cpp
 )
 
 # Create core library (CPU-only: no CUDA dependency)

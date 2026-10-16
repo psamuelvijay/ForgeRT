@@ -298,6 +298,13 @@ class CPUOnlyOp : public Operator {
 public:
     std::string name() const override { return "CPUOnly"; }
 
+    // clone() required by Phase 5 Operator base.
+    // This stub is never used with GraphOptimizer; the optimizer
+    // should not be called on graphs containing CPUOnlyOp.
+    std::unique_ptr<Operator> clone() const override {
+        return std::make_unique<CPUOnlyOp>();
+    }
+
     bool supportsBackend(Backend b) const override {
         return b == Backend::CPU;
     }

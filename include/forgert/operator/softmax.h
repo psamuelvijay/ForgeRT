@@ -40,6 +40,10 @@ public:
         return "Softmax";
     }
 
+    std::unique_ptr<Operator> clone() const override {
+        return std::make_unique<SoftmaxOp>();
+    }
+
     bool supportsBackend(Backend backend) const override {
 #ifdef FORGERT_CUDA_AVAILABLE
         return backend == Backend::CPU || backend == Backend::CUDA;

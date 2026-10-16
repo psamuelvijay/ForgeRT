@@ -50,6 +50,11 @@ add_executable(test_memory_stats test_memory_stats.cpp)
 target_include_directories(test_memory_stats PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_memory_stats PRIVATE forgert)
 
+# Graph optimizer tests (Phase 5) — dead-node elimination pass
+add_executable(test_graph_optimizer test_graph_optimizer.cpp)
+target_include_directories(test_graph_optimizer PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_graph_optimizer PRIVATE forgert)
+
 # CUDA graph integration tests (Phase 3) — proves Tensor→Graph→Operator→CUDA kernel
 add_executable(test_graph_cuda test_graph_cuda.cu)
 target_include_directories(test_graph_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
@@ -125,7 +130,8 @@ add_test(NAME LayerNormTest     COMMAND test_layernorm)
 add_test(NAME GraphTest         COMMAND test_graph)
 add_test(NAME GraphMatMulTest   COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest  COMMAND test_graph_softmax)
-add_test(NAME MemoryStatsTest   COMMAND test_memory_stats)
+add_test(NAME MemoryStatsTest      COMMAND test_memory_stats)
+add_test(NAME GraphOptimizerTest   COMMAND test_graph_optimizer)
 add_test(NAME ReLUCUDATest      COMMAND test_relu_cuda)
 add_test(NAME MatMulCUDATest    COMMAND test_matmul_cuda)
 add_test(NAME SoftmaxCUDATest   COMMAND test_softmax_cuda)

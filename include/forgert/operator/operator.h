@@ -37,6 +37,18 @@ public:
     virtual std::string name() const = 0;
 
     /**
+     * @brief Create a deep copy of this operator.
+     *
+     * Required by GraphOptimizer to rebuild an optimized graph without
+     * knowing concrete operator types.  Each concrete subclass must
+     * override this and return a new instance that is behaviourally
+     * identical to the original.
+     *
+     * @return Owning pointer to the cloned operator.
+     */
+    virtual std::unique_ptr<Operator> clone() const = 0;
+
+    /**
      * @brief Infer output shapes from input shapes
      * 
      * This allows graph construction without allocating tensors.
