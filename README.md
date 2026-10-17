@@ -292,6 +292,85 @@ ctest --test-dir build --output-on-failure
 - ✅ **Overhead**: 2–28 µs optimizer pass (all test graphs)
 - ✅ `test_graph_cuda.exe` compiled and linked successfully with Phase 5 changes
 
+**Phase 6: Resource-Aware Scheduler MVP** ✅ Complete
+
+### Scheduling Policy
+
+`SchedulingPolicy` is a **pure function** (no side effects, no GPU dependency). It answers one question per operator node: *"Should this run on CPU or GPU?"*
+
+Cost model:
+```
+cost_cpu  = cpu_ns_per_elem[op] × num_output_elements
+
+cost_gpu  = H2D_transfer_ns(input_bytes)      ← 0 if inputs already on GPU
+          + kernel_ns_per_elem[op] × elements  ← cpu_ns / gpu_speedup
+          + D2H_transfer_ns(output_bytes)       ← always needed
+
+decision  = argmin(cost_cpu, cost_gpu)
+          subject to: op.cuda_supported AND projected_vram ≤ budget
+```
+
+### CPU Cost Table (measured, i5-9300H, Release, 100 iterations)
+
+| Operator   | ns/elem (measured) | GPU speedup (estimate) | CUDA supported |
+|------------|-------------------|------------------------|---------------|
+| ReLU       | 0.18              | 5×                     | ✅            |
+| Add        | 0.18              | 5×                     | ✅            |
+| Softmax    | 6.0               | 10×                    | ✅            |
+| LayerNorm  | 2.4               | 8×                     | ✅            |
+| MatMul     | 600               | 40×                    | ✅            |
+
+Transfer bandwidth: 6 bytes/ns (PCIe 3.0 x16 practical H2D+D2H combined).  
+VRAM budget: 3.8 GB (GTX 1050 4 GB − 200 MB headroom).  
+GPU speedup factors are **conservative estimates** — CUDA end-to-end benchmarks are blocked by a pre-existing LNK4098 LIBCMT linker conflict (see below).
+
+### Scheduler Decision Examples (default BW = 6 bytes/ns)
+
+| Scenario | Decision | Why |
+|----------|----------|-----|
+| ReLU [1024] | **CPU** | GPU cost ~1400 ns > CPU cost ~184 ns (transfer dominates) |
+| MatMul [512×512] | **GPU** | CPU cost ~157 ms >> GPU ~4.5 ms (compute savings dominate) |
+| MatMul with inputs on GPU | **GPU** | H2D skipped → even lower GPU cost |
+| Any op, 1 KB VRAM budget | **CPU** | VRAM limit prevents GPU allocation |
+| Unknown op | **CPU** | `operator_name_known=false`, reason="unknown-op:..." |
+
+### Key Design Decisions
+
+- **Policy / execution separation**: `SchedulingPolicy::decide()` is unit-testable with synthetic `DeviceContext` — no GPU needed for scheduler tests.
+- **Explicit reasons**: Every `ScheduleDecision` has a non-empty `reason` string. No silent fallbacks.
+- **`ScheduledGraph` wraps `Graph`**: Does not modify `Graph::execute()` or break the existing explicit-backend API. Scheduler is opt-in.
+- **Per-node device transfers**: `ScheduledGraph::execute()` handles H2D/D2H between nodes assigned to different backends transparently, using `Tensor::copyTo()`.
+- **Outputs always on CPU**: Matches the standard `Graph::execute()` contract.
+
+### Test Results
+
+```
+=== Phase 6 Scheduler Tests ===
+PASS: Test 1: ReLU [1024] → CPU preferred (transfer overhead > savings)
+PASS: Test 2: MatMul [512×512] → GPU preferred (compute savings > transfer)
+PASS: Test 3: GPU cost with residency <= GPU cost without residency
+PASS: Test 3: slow-BW + no residency → CPU preferred (H2D dominates)
+PASS: Test 3: slow-BW + residency → GPU preferred (H2D skipped, kernel+D2H < CPU)
+PASS: Test 4: VRAM limit → CPU fallback even for large MatMul
+PASS: Test 5: cuda_supported=false → always CPU
+PASS: Test 6: unknown op → CPU fallback (operator_name_known=false)
+PASS: Test 7: CPU cost matches hand calculation
+PASS: Test 7: GPU cost matches hand calculation (h2d+kernel+d2h)
+PASS: Test 8: ScheduledGraph single-node output matches Graph::execute()
+PASS: Test 9: multi-node ScheduledGraph output matches Graph::execute()
+=== All Phase 6 tests passed ===
+```
+
+**Test suite: 12/12 CPU tests passing** ✅ (Phase 6 state)
+- 12 CPU test suites: Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ×3, MemoryStats, GraphOptimizer, Scheduler
+- `test_graph_cuda.exe` (7 CUDA tests): built and **all 7 pass** on GTX 1050
+
+### CUDA Build Status (Phase 6)
+
+- `test_graph_cuda.exe` — **compiles, links, 7/7 CUDA tests pass** on GTX 1050 sm_61
+- Standalone CUDA kernel tests (`test_relu_cuda`, `test_matmul_cuda`, `test_softmax_cuda`, `test_layernorm_cuda`, `test_relu_op_cuda`) — link fails with pre-existing `LNK4098: LIBCMT / MSVCRT conflict` (MSVC 14.39 + CUDA 12.6 CRT mismatch, unrelated to Phase 6 changes)
+- `ScheduledGraph::execute()` on GPU path requires CUDA runtime; CPU-only build correctly falls back to CPU for all nodes (VRAM budget = 0 MiB when CUDA unavailable)
+
 ## Engineering Principles
 
 1. **Correctness before optimization**

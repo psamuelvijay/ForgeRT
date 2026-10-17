@@ -32,3 +32,6 @@
 
 // Graph optimizer (Phase 5)
 #include "forgert/graph/optimizer.h"
+
+// Resource-aware scheduler (Phase 6)
+#include "forgert/scheduler/scheduler.h"

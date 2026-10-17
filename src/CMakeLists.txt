@@ -9,6 +9,9 @@ set(FORGERT_SOURCES
 
     # Graph optimizer (Phase 5 - dead-node elimination)
     graph/optimizer.cpp
+
+    # Resource-aware scheduler (Phase 6 - CPU/GPU placement)
+    scheduler/scheduler.cpp
 )
 
 # Create core library (CPU-only: no CUDA dependency)
