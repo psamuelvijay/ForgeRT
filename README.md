@@ -2,488 +2,425 @@
 
 **Resource-Aware Neural Inference Runtime**
 
-ForgeRT is an educational/research-oriented neural network inference runtime written in modern C++ and CUDA. Unlike traditional frameworks that simply offload everything to GPU, ForgeRT intelligently decides where operations should execute based on computation cost, memory pressure, and CPU???GPU transfer overhead.
+ForgeRT is an educational C++ and CUDA inference runtime that demonstrates how a
+lightweight scheduler can make cost-based placement decisions (CPU vs GPU) rather
+than offloading every operation to the GPU blindly.
 
-## Project Goals
+It includes a complete computation graph engine, five operators with CPU and CUDA
+backends, a dead-node graph optimizer, a cost-model scheduler, and a working MNIST
+digit-classification demo verified against PyTorch.
 
-The central research question: *"Given a neural network graph and limited heterogeneous hardware, can a lightweight runtime automatically make better execution decisions by considering computation cost, memory pressure, and transfer overhead?"*
+> **Status:** Phases 1-6 complete. CPU inference fully verified.
+> CUDA operator tests partially blocked by a pre-existing linker issue
+> (see [Test Status](#test-status)).
 
-### Key Features
+---
 
-- **Resource-Aware Scheduling**: Adaptive execution placement (CPU vs GPU) based on measured costs
-- **Custom CUDA Kernels**: Hand-optimized kernels targeting Pascal architecture (sm_61)
-- **Graph-Based Execution**: DAG computation graph with automatic dependency resolution
-- **Operator Abstraction**: Clean separation between operations and execution backends
-- **Memory Management**: Explicit lifetime tracking, pooling, and reuse strategies
-- **Performance Profiling**: Detailed metrics separating kernel time, transfer time, and overhead
-- **Reproducible Benchmarks**: Comprehensive comparison against established runtimes
+## Key Features
 
-## Execution Pipeline
+- **Cost-model scheduler** - decides per-operator whether CPU or GPU is cheaper,
+  accounting for PCIe transfer overhead, VRAM budget, and input residency
+- **Custom CUDA kernels** - hand-written kernels for Pascal (sm\_61): ReLU, MatMul,
+  Softmax, LayerNorm, Add
+- **Graph optimizer** - dead-node elimination (O(N+E)) removes operators whose
+  outputs are never used
+- **DAG execution engine** - topological sort, shape inference, intermediate tensor
+  allocation
+- **Memory tracking** - `MemoryStats` singleton records CPU/CUDA allocations and
+  peak usage
+- **Real inference demo** - trained MNIST MLP (97.35% accuracy) runs through the
+  graph engine; results verified against PyTorch
 
-ForgeRT implements a complete inference pipeline:
+**What ForgeRT is not:** a production runtime, a PyTorch replacement, or a
+transformer engine.
+
+---
+
+## Architecture
 
 ```
-Graph Construction
-    ???
-Shape Inference (validates compatibility)
-    ???
-Topological Sort (determines execution order)
-    ???
-Memory Allocation (intermediate tensors)
-    ???
-Operator Execution (CPU/CUDA backends)
-    ???
-Result Tensors
+Graph Construction  (addInput, addNode, markOutput)
+        |
+        v
+Shape Inference     (each operator infers output shapes)
+        |
+        v
+Graph Optimizer     (dead-node elimination, O(N+E))
+        |
+        v
+Scheduler           (cost model: CPU ns/elem vs GPU transfer + kernel)
+        |
+        v
+Topological Sort    (Kahn's algorithm, cycle detection)
+        |
+        v
+Operator Dispatch   (CPU or CUDA backend, per node)
+        |
+        v
+Result Tensors      (always returned on CPU)
 ```
 
-## Implemented Operators
+---
 
-### Phase 1 & 2: CPU Backend
+## Operators
 
-| Operator | Description | Shape Example | Status |
-|----------|-------------|---------------|--------|
-| **Add** | Element-wise addition with broadcasting | `[3,4] + [4] ??? [3,4]` | ??? Complete |
-| **ReLU** | Rectified Linear Unit activation | `[M,N] ??? [M,N]` | ??? Complete |
-| **MatMul** | 2D Matrix multiplication | `[M,K] @ [K,N] ??? [M,N]` | ??? Complete |
-| **Softmax** | Softmax activation (last dimension) | `[Batch,Classes] ??? [Batch,Classes]` | ??? Complete |
-| **LayerNorm** | Layer normalization (last dimension) | `[Batch,Features] ??? [Batch,Features]` | ??? Complete |
+### CPU backend (all verified)
 
-### Phase 3: CUDA Backend
+| Operator | Description | Shapes |
+|----------|-------------|--------|
+| **Add** | Element-wise addition, NumPy-style broadcasting | `[M,N] + [N]` -> `[M,N]` |
+| **ReLU** | Rectified linear unit | `[M,N]` -> `[M,N]` |
+| **MatMul** | 2D matrix multiplication | `[M,K] @ [K,N]` -> `[M,N]` |
+| **Softmax** | Numerically stable, over last dimension | `[B,C]` -> `[B,C]` |
+| **LayerNorm** | Two-pass mean+variance, over last dimension | `[B,F]` -> `[B,F]` |
 
-| Operator | CUDA Kernel | Backend Integration | CPU vs CUDA Tests | Status |
-|----------|-------------|---------------------|-------------------|--------|
-| **ReLU** | ??? Grid-stride, sm_61 optimized | ??? `executeCUDA()` | ??? Numerical equivalence | ??? Complete |
-| **MatMul** | ??? 16??16 tiled shared memory | ??? `executeCUDA()` | ??? Numerical equivalence | ??? Complete |
-| **Softmax** | ??? Multi-pass reduction | ??? `executeCUDA()` | ??? Numerical equivalence | ??? Complete |
-| **LayerNorm** | ??? Dual-reduction (mean+var) | ??? `executeCUDA()` | ??? Numerical equivalence | ??? Complete |
-| **Add** | ??? Deferred | ??? Deferred | ??? Deferred | ???? Phase 4 |
+### CUDA backend
 
-**Example:**
+| Operator | Kernel | Tested |
+|----------|--------|--------|
+| **ReLU** | Grid-stride loop | Yes - `ReLUCUDATest` passes |
+| **MatMul** | 16x16 tiled shared memory | Kernel compiles; standalone test blocked (LNK4098) |
+| **Softmax** | Multi-pass reduction | Kernel compiles; standalone test blocked (LNK4098) |
+| **LayerNorm** | Dual-reduction (mean + variance) | Kernel compiles; standalone test blocked (LNK4098) |
+| **Add** | Element-wise with broadcasting | Kernel compiles; standalone test blocked (LNK4098) |
+
+All five CUDA kernels compile and link in `test_graph_cuda.exe`, which passes 7/7
+graph-level CUDA tests on the GTX 1050. The four standalone kernel tests fail to
+link due to a pre-existing LIBCMT/MSVCRT conflict (LNK4098) with MSVC 14.39 +
+CUDA 12.6. This is unrelated to the operator implementations.
+
+**Quick example:**
+
 ```cpp
-// Create computation graph
+#include <forgert/forgert.h>
+#include <forgert/graph/graph.h>
+#include <forgert/operator/matmul.h>
+#include <forgert/operator/relu.h>
+
+using namespace forgert;
+
 Graph graph;
-auto input_a = graph.addInput(TensorShape({3, 4}), DataType::Float32);
-auto input_b = graph.addInput(TensorShape({4}), DataType::Float32);
-
-// Add operations
-auto add_out = graph.addNode(std::make_unique<AddOp>(), {input_a, input_b});
-auto relu_out = graph.addNode(std::make_unique<ReLUOp>(), {add_out[0]});
-
-// Mark output and execute
-graph.markOutput(relu_out[0]);
+size_t a  = graph.addInput(TensorShape({2, 3}), DataType::Float32);
+size_t b  = graph.addInput(TensorShape({3, 4}), DataType::Float32);
+auto mm   = graph.addNode(std::make_unique<MatMulOp>(), {a, b});
+auto relu = graph.addNode(std::make_unique<ReLUOp>(),   {mm[0]});
+graph.markOutput(relu[0]);
 graph.validate();
 
 auto results = graph.execute({&tensor_a, &tensor_b}, Backend::CPU);
 ```
 
-## Design Philosophy
+---
 
-ForgeRT does NOT:
-- Try to replace PyTorch or ONNX Runtime
-- Maximize GPU utilization blindly
-- Support every possible neural network operator
-- Hide complexity behind abstractions
+## Graph Optimizer (Phase 5)
 
-ForgeRT DOES:
-- Optimize for latency, throughput, and memory efficiency
-- Make execution decisions transparent and measurable
-- Demonstrate that GPU isn't always faster when transfer overhead dominates
-- Provide deep insight into heterogeneous execution tradeoffs
+`GraphOptimizer::optimize(graph)` performs a backward reachability pass from
+declared outputs and removes any node whose result can never reach an output.
 
-## Target Hardware
+- Complexity: O(N + E) over nodes and edges
+- Returns an `OptimizationReport` (nodes\_before, nodes\_after, nodes\_removed,
+  elapsed\_us, summary())
+- All five operators implement `Operator::clone()` (required for the graph rebuild)
 
-- **CPU**: Intel Core i5-9300H (4 physical cores)
-- **RAM**: 32 GB
-- **GPU**: NVIDIA GeForce GTX 1050 (4 GB VRAM, Pascal, compute capability 6.1)
-- **Storage**: SSD (primary) + HDD (datasets)
+**Measured result:** A 3-node graph with 2 dead nodes reduces peak CPU allocation
+from 1536 bytes to 512 bytes (3x). Optimizer pass takes 2-28 us on test graphs.
 
-## Technology Stack
+---
 
-- C++17/20
-- CUDA (NVIDIA CUDA Toolkit 12.x)
-- CMake
-- Python (tooling, visualization, benchmarks)
-- MSVC x64
+## Resource-Aware Scheduler (Phase 6)
+
+`SchedulingPolicy::decide()` is a **pure function** that chooses CPU or GPU for
+each operator. It has no GPU dependency and is unit-testable without hardware.
+
+**Cost model:**
+
+```
+cost_cpu = cpu_ns_per_elem[op] * num_elements
+
+cost_gpu = H2D_transfer_ns(input_bytes)          # 0 if inputs already on GPU
+         + kernel_ns_per_elem[op] * elements      # = cpu_ns / speedup
+         + D2H_transfer_ns(output_bytes)          # always required
+
+decision = argmin(cost_cpu, cost_gpu)
+           subject to: op.cuda_supported AND projected_vram <= budget
+```
+
+**Measured CPU costs (i5-9300H, Release, 100 iterations):**
+
+| Operator | ns/elem (measured) | GPU speedup (estimate) |
+|----------|--------------------|------------------------|
+| ReLU | 0.18 | 5x |
+| Add | 0.18 | 5x |
+| Softmax | 6.0 | 10x |
+| LayerNorm | 2.4 | 8x |
+| MatMul | 600 | 40x |
+
+Transfer bandwidth: 6 bytes/ns (PCIe 3.0 practical).
+VRAM budget: 3.8 GB (4 GB minus 200 MB headroom).
+
+> GPU speedup figures are **estimates**. End-to-end CUDA benchmarks require
+> resolving the LNK4098 linker issue.
+
+**Example scheduler decisions:**
+
+| Scenario | Decision | Reason |
+|----------|----------|--------|
+| ReLU [1024 elements] | CPU | Transfer ~1400 ns > CPU ~184 ns |
+| MatMul [512x512] | GPU | CPU ~157 ms >> estimated GPU ~4.5 ms |
+| MatMul, inputs already on GPU | GPU | H2D cost skipped |
+| VRAM budget exceeded | CPU | Hard fallback regardless of compute cost |
+| Unknown operator | CPU | Explicit fallback; reason string recorded |
+
+`ScheduledGraph` wraps `Graph` and handles H2D/D2H transfers between nodes on
+different backends. The underlying `Graph::execute()` API is unchanged.
+Scheduler is opt-in.
+
+---
+
+## MNIST Inference Demo
+
+A 2-layer MLP trained on MNIST provides end-to-end validation of the graph
+engine, operators, and weight loader working together.
+
+**Architecture:**
+
+```
+Input [1, 784]
+  -> MatMul [784, 128] + Add bias [1, 128]   (fully connected layer 1)
+  -> ReLU
+  -> MatMul [128, 10]  + Add bias [1, 10]    (fully connected layer 2)
+  -> Softmax
+  -> Output [1, 10]
+```
+
+**Verified results:**
+- PyTorch training: **97.35% accuracy** on the 10,000-sample MNIST test set
+- ForgeRT inference: **10/10 correct (100%)** on 10 exported test samples
+- Confidence scores match PyTorch reference to 4 decimal places
+- Execution is **CPU-only**; CUDA backend not yet wired into this demo
+
+### Step 1 - Generate model weights (run once)
+
+```bash
+cd models
+pip install torch torchvision numpy
+python train_mnist.py
+```
+
+Writes `models/mnist_mlp.fgwt` (~400 KB) and `models/mnist_test_samples.fgwt`.
+Both are excluded from the repository by `.gitignore`.
+Training takes approximately 2 minutes on CPU.
+
+### Step 2 - Build (Windows, MSVC environment active)
+
+```batch
+cmake --build build --config Release --target mnist_inference
+```
+
+### Step 3 - Run
+
+```batch
+build\examples\mnist\mnist_inference.exe ^
+    models\mnist_mlp.fgwt ^
+    models\mnist_test_samples.fgwt
+```
+
+**Expected output:**
+
+```
+ForgeRT MNIST Inference Demo
+============================
+Loaded 4 weight arrays:
+  fc1_weight: [784, 128]    fc1_bias: [1, 128]
+  fc2_weight: [128, 10]     fc2_bias: [1, 10]
+[OK] Weights loaded
+
+Sample  0: Pred=7 True=7 Conf=0.9938 [OK]
+Sample  1: Pred=2 True=2 Conf=0.9986 [OK]
+Sample  2: Pred=1 True=1 Conf=0.9992 [OK]
+Sample  3: Pred=0 True=0 Conf=1.0000 [OK]
+Sample  4: Pred=4 True=4 Conf=0.9965 [OK]
+Sample  5: Pred=1 True=1 Conf=0.9999 [OK]
+Sample  6: Pred=4 True=4 Conf=0.9807 [OK]
+Sample  7: Pred=9 True=9 Conf=0.9999 [OK]
+Sample  8: Pred=5 True=5 Conf=0.9309 [OK]
+Sample  9: Pred=9 True=9 Conf=0.9994 [OK]
+Accuracy: 10/10 (100%)
+```
+
+---
+
+## Build Requirements
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| MSVC | 14.39 (VS 2022) | Earlier versions untested |
+| CUDA Toolkit | 12.6 | sm\_61 (Pascal). CUDA 13.x dropped Pascal support |
+| CMake | 3.18+ | 4.x tested |
+| Ninja | Recent | Used by the build script |
+| Python | 3.x | Only needed to train the MNIST model |
+
+The project declares `LANGUAGES CXX CUDA` unconditionally, so nvcc must be on
+PATH even when only building CPU targets.
+
+ForgeRT is developed and tested on Windows. Linux build is not verified.
+
+---
+
+## Building
+
+### Build script (Windows)
+
+```batch
+scripts\build.bat            REM build
+scripts\build.bat test       REM build and run tests
+scripts\build.bat clean      REM clean and rebuild
+```
+
+The script configures MSVC 14.39 automatically.
+Edit `scripts/build.bat` if your tools are installed in non-default locations.
+
+### Manual CMake
+
+Activate the MSVC 14.39 environment, then:
+
+```batch
+cmake -S . -B build -G Ninja ^
+  -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_CUDA_ARCHITECTURES=61
+
+cmake --build build
+```
+
+---
+
+## Test Status
+
+Run tests with the MSVC environment active:
+
+```batch
+ctest --test-dir build --output-on-failure
+```
+
+**Results (verified on GTX 1050 / CUDA 12.6 / MSVC 14.39):**
+
+| Test | Result |
+|------|--------|
+| TensorTest | Pass |
+| TensorCUDATest | Pass |
+| OperatorTest | Pass |
+| ReLUTest | Pass |
+| MatMulTest | Pass |
+| SoftmaxTest | Pass |
+| LayerNormTest | Pass |
+| GraphTest | Pass |
+| GraphMatMulTest | Pass |
+| GraphSoftmaxTest | Pass |
+| MemoryStatsTest | Pass |
+| GraphOptimizerTest | Pass |
+| SchedulerTest | Pass |
+| ReLUCUDATest | Pass |
+| MatMulCUDATest | Not Run |
+| SoftmaxCUDATest | Not Run |
+| LayerNormCUDATest | Not Run |
+| ReLUOpCUDATest | Not Run |
+
+**14 pass, 4 not run** (18 total). The 4 not-run tests fail to link due to a
+LNK4098 CRT conflict (LIBCMT vs MSVCRT) with MSVC 14.39 + CUDA 12.6. The same
+operators pass 7/7 graph-level CUDA tests in `test_graph_cuda.exe`.
+
+---
+
+## Benchmarks
+
+A CPU benchmark executable is built from `benchmarks/benchmark_operators.cpp`:
+
+```batch
+build\benchmarks\benchmark_operators.exe
+```
+
+The ns/elem values in the scheduler cost table were measured on an i5-9300H
+using this benchmark with 100 iterations per operator. GPU speedup factors are
+estimates; end-to-end GPU benchmarks require the LNK4098 issue to be resolved.
+
+---
+
+## Docker
+
+A `Dockerfile` is included for containerised builds. Because ForgeRT requires
+`LANGUAGES CUDA`, the image uses `nvidia/cuda:12.6.0-devel-ubuntu22.04` to
+provide nvcc and toolkit headers. No GPU is needed at runtime.
+
+```bash
+# Build
+docker build -t forgert:latest .
+
+# Run tests
+docker run --rm forgert:latest ctest --test-dir /forgert/build --output-on-failure
+
+# Run MNIST demo (weights must be generated on the host first)
+docker run --rm \
+  -v /path/to/ForgeRT/models:/weights:ro \
+  forgert:latest \
+  /forgert/build/examples/mnist/mnist_inference \
+  /weights/mnist_mlp.fgwt /weights/mnist_test_samples.fgwt
+```
+
+> **Not verified:** Docker is not installed in the development environment.
+> The Dockerfile and commands above are correct by inspection; verify
+> independently before relying on them.
+
+---
 
 ## Project Structure
 
 ```
 forgert/
-????????? include/forgert/     # Public API headers
-????????? src/                 # Implementation
-????????? cuda/                # CUDA kernels and device code
-????????? tests/               # Unit tests
-????????? benchmarks/          # Performance benchmarks
-????????? tools/               # Utilities and scripts
-????????? scripts/             # Build and automation scripts
-????????? examples/            # Usage examples
-????????? docs/                # Documentation
+|-- include/forgert/      # Public headers (operators, graph, scheduler, memory)
+|-- src/                  # Core library (tensor, memory stats, optimizer, scheduler)
+|-- cuda/kernels/         # CUDA kernel sources and host-callable launchers
+|-- tests/                # Unit tests (one per operator/subsystem)
+|-- benchmarks/           # CPU operator benchmark harness
+|-- examples/mnist/       # MNIST inference demo (C++ source, README)
+|-- models/               # Training script (train_mnist.py) and documentation
+|-- scripts/              # build.bat for Windows
+|-- .github/              # Issue templates and PR template
 ```
-
-## Development Phases
-
-### Phase 1: Foundation ??? Complete
-- Tensor abstraction, Graph representation, CMake build system, unit test harness
-
-### Phase 2: CPU Backend ??? Complete
-- CPU implementations: Add, ReLU, MatMul, Softmax, LayerNorm, benchmark harness
-- Conv2D explicitly deferred
-
-### Phase 3: CUDA Backend ???? In Progress
-- ??? Build system fixed for CMake 4.x + MSVC 14.39 + Ninja + CUDA 12.6 + sm_61
-- ??? ReLU CUDA kernel (grid-stride, Pascal sm_61)
-- ??? ReLUOp CUDA backend dispatch (`Backend::CUDA` ??? GPU kernel)
-- ??? CUDA kernels for remaining operators
-- ??? Tensor CUDA memory allocation (Phase 4 prerequisite for graph-level CUDA)
-
-### Phase 3: CUDA Backend
-- Custom CUDA kernels for Pascal (sm_61)
-- Explicit compute capability targeting
-
-### Phase 4: Memory System ??? Complete
-- ??? `Device` enum extracted to `include/forgert/tensor/device.h` ??? clean separation of concerns
-- ??? `MemoryStats` singleton: tracks CPU/CUDA byte allocations, peak usage, and transfer counts
-- ??? `Tensor` instrumented: constructor/destructor/copyTo() automatically record to `MemoryStats`
-- ??? CUDA memory query: `forgert_cuda_mem_info()` wraps `cudaMemGetInfo()` 
-- ??? All existing CPU operator headers fixed: `FORGERT_CUDA_AVAILABLE` guards on all `extern "C"` CUDA declarations
-- ??? `forgert` core library: `memory_stats.cpp` + `tensor.cpp` (CPU, no CUDA dependency)
-- ??? `forgert.h` convenience header added
-- ??? `test_memory_stats` ??? 6 tests: allocation tracking, peak tracking, transfer tracking, multi-alloc, reset, print
-
-**Test suite: 10/10 CPU tests passing** ???
-
-### Phase 5: Graph Optimization ??? Complete
-- **Dead-node elimination** ??? backward reachability pass from declared outputs removes every operator whose result can never reach a graph output
-- **Constant folding / CSE** ??? deliberately not implemented (see design notes in `include/forgert/graph/optimizer.h`)
-- `GraphOptimizer` class: `optimize(graph)` returns `{optimized_graph, OptimizationReport}`
-- `OptimizationReport`: `nodes_before`, `nodes_after`, `nodes_removed`, `elapsed_us`, `summary()`
-- Operator `clone()` added to all five operators (required for graph rebuild)
-- Graph introspection accessors added (`getNodes()`, `getValueShape()`, `getValueDtype()`, `getExecutionOrder()`, ???)
-- **Test suite: 10 focused optimizer tests** (`test_graph_optimizer`) ??? all passing
-- **Measured memory reduction:** 3-node graph with 2 dead nodes ??? optimised graph allocates **3?? less peak CPU memory** (1536 B ??? 512 B)
-- **Optimizer overhead:** 2???28 ??s for all test graphs (O(N+E) backward pass)
-
-### Phase 6: Resource-Aware Scheduler
-- CPU vs CUDA execution decisions
-- Cost model based on profiling data
-
-### Phase 7: Autotuning
-- Kernel configuration search
-- Block size and tiling optimization
-
-### Phase 8: Model Import
-- Restricted ONNX operator subset support
-
-### Phase 9: Benchmarking
-- Comparison vs PyTorch/ONNX Runtime
-- Comprehensive metrics collection
-
-### Phase 10: Visualization
-- Execution decision visualization
-- Performance report generation
-
-## Building
-
-### Windows (MSVC + CUDA 12.6)
-
-**Quick Build:**
-```batch
-scripts\build.bat
-```
-
-**Build Options:**
-```batch
-scripts\build.bat          # Build with existing configuration
-scripts\build.bat clean    # Clean and reconfigure
-scripts\build.bat config   # Reconfigure only
-scripts\build.bat test     # Build and run tests
-```
-
-**Manual Build:**
-```batch
-# Set up MSVC 14.39 environment
-call "D:\Development\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.39
-
-# Configure
-cmake -S . -B build -G Ninja ^
-  -DCMAKE_CXX_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
-  -DCMAKE_CUDA_COMPILER="D:/Development/CUDA/v12.6/bin/nvcc.exe" ^
-  -DCMAKE_CUDA_HOST_COMPILER="D:/Development/VSBuildTools/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe" ^
-  -DCMAKE_CUDA_ARCHITECTURES=61
-
-# Build
-cmake --build build --parallel
-```
-
-**Requirements:**
-- CUDA Toolkit 12.6 (sm_61 support - CUDA 13.x dropped Pascal)
-- MSVC 14.39 (Visual Studio 2022 Build Tools)
-- CMake 3.18+
-- Ninja build system
-
-## Running Tests
-
-```batch
-scripts\build.bat test
-```
-
-Or manually:
-```batch
-call "D:\Development\VSBuildTools\VC\Auxiliary\Build\vcvars64.bat" -vcvars_ver=14.39
-ctest --test-dir build --output-on-failure
-```
-
-## Current Status
-
-**Phase 1: Foundation** ??? Complete
-- ??? Tensor shape/stride representation
-- ??? CPU tensor allocation with RAII
-- ??? DataType abstraction (Float32, Int32)
-- ??? Operator abstraction framework
-- ??? Add operator with NumPy-style broadcasting
-- ??? Graph representation and execution
-- ??? DAG validation with cycle detection
-- ??? Topological execution ordering
-- ??? CPU backend execution pipeline
-
-**Phase 2: CPU Backend** ??? Complete
-- ??? ReLU operator
-- ??? MatMul operator
-- ??? Softmax operator (numerically stable)
-- ??? LayerNorm operator (two-pass algorithm)
-- ??? CPU benchmark harness
-- ??? Conv2D ??? explicitly deferred
-
-**Phase 3: CUDA Backend** ??? Complete
-- ??? Build system: CMake 4.x + MSVC 14.39 + Ninja + CUDA 12.6 + sm_61 working
-- ??? ReLU CUDA kernel (`cuda/kernels/relu_kernel.cu`) ??? grid-stride loop, sm_61, tested at 1K and 1M elements
-- ??? `ReLUOp::executeCUDA()` ??? CUDA backend wired into operator dispatch (`Backend::CUDA` routes to the GPU kernel)
-- ??? `ReLUOp::supportsBackend()` reports CUDA when built with `FORGERT_CUDA_AVAILABLE`
-- ??? MatMul CUDA kernel (`cuda/kernels/matmul_kernel.cu`) ??? tiled multiplication with 16x16 shared memory tiles, sm_61 optimized
-- ??? `MatMulOp::executeCUDA()` ??? CUDA backend integration with comprehensive testing
-- ??? Softmax CUDA kernel (`cuda/kernels/softmax_kernel.cu`) ??? multi-pass reduction approach, numerically stable
-- ??? `SoftmaxOp::executeCUDA()` ??? CUDA backend integration with comprehensive testing
-- ??? LayerNorm CUDA kernel (`cuda/kernels/layernorm_kernel.cu`) ??? dual-reduction approach (mean + variance), block-level shared memory
-- ??? `LayerNormOp::executeCUDA()` ??? CUDA backend integration with comprehensive testing
-- ??? Add CUDA kernel ??? deferred to Phase 4 (simple element-wise operation, lower priority)
-
-**Test suite: 11/11 CPU tests passing** ??? (Phase 5 state)
-- 11 CPU test suites: Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ??3, MemoryStats, GraphOptimizer
-- CUDA tests (Phase 3): `test_graph_cuda` and `test_relu_cuda` link and compile; `test_graph_cuda.exe` successfully built with Phase 5 changes
-
-**CUDA configuration:** CUDA 12.6.85 ?? sm_61 (Pascal) ?? MSVC 14.39 ?? Ninja ?? CMake 4.3
-
-**Phase 4: Memory System** ??? Complete
-- ??? `Device` enum in `include/forgert/tensor/device.h` (clean separation)
-- ??? `MemoryStats` singleton: CPU/CUDA allocated bytes, peak bytes, transfer bytes/counts
-- ??? `Tensor` instrumented: constructor/destructor/copyTo() auto-report to stats
-- ??? `forgert_cuda_mem_info()`: queries `cudaMemGetInfo()` for available VRAM
-- ??? All operator headers fixed: CUDA `extern "C"` declarations guarded with `FORGERT_CUDA_AVAILABLE`
-- ??? `forgert` core library: CPU-only, independent of CUDA link
-- ??? `test_memory_stats`: 6 focused tests (allocation, peak, transfer, multi-alloc, reset, print)
-
-**Phase 5: Graph Optimization** ??? Complete
-- ??? `GraphOptimizer` class: dead-node elimination (backward reachability, O(N+E))
-- ??? `OptimizationReport`: nodes_before/after/removed, elapsed_us, summary()
-- ??? `Operator::clone()` pure virtual added; all 5 operators implement it
-- ??? Graph introspection accessors added (getNodes, getValueShape/Dtype/Name, getExecutionOrder)
-- ??? `test_graph_optimizer`: 10 tests covering no-op, single/chain/branch dead nodes, multi-output, all-dead, numerical equivalence, memory stats, report accuracy, deep graph
-- ??? **Memory**: 3-node graph with 2 dead ??? 3?? lower peak CPU allocation (1536 ??? 512 bytes, measured)
-- ??? **Overhead**: 2???28 ??s optimizer pass (all test graphs)
-- ??? `test_graph_cuda.exe` compiled and linked successfully with Phase 5 changes
-
-**Phase 6: Resource-Aware Scheduler MVP** ??? Complete
-
-### Scheduling Policy
-
-`SchedulingPolicy` is a **pure function** (no side effects, no GPU dependency). It answers one question per operator node: *"Should this run on CPU or GPU?"*
-
-Cost model:
-```
-cost_cpu  = cpu_ns_per_elem[op] ?? num_output_elements
-
-cost_gpu  = H2D_transfer_ns(input_bytes)      ??? 0 if inputs already on GPU
-          + kernel_ns_per_elem[op] ?? elements  ??? cpu_ns / gpu_speedup
-          + D2H_transfer_ns(output_bytes)       ??? always needed
-
-decision  = argmin(cost_cpu, cost_gpu)
-          subject to: op.cuda_supported AND projected_vram ??? budget
-```
-
-### CPU Cost Table (measured, i5-9300H, Release, 100 iterations)
-
-| Operator   | ns/elem (measured) | GPU speedup (estimate) | CUDA supported |
-|------------|-------------------|------------------------|---------------|
-| ReLU       | 0.18              | 5??                     | ???            |
-| Add        | 0.18              | 5??                     | ???            |
-| Softmax    | 6.0               | 10??                    | ???            |
-| LayerNorm  | 2.4               | 8??                     | ???            |
-| MatMul     | 600               | 40??                    | ???            |
-
-Transfer bandwidth: 6 bytes/ns (PCIe 3.0 x16 practical H2D+D2H combined).  
-VRAM budget: 3.8 GB (GTX 1050 4 GB ??? 200 MB headroom).  
-GPU speedup factors are **conservative estimates** ??? CUDA end-to-end benchmarks are blocked by a pre-existing LNK4098 LIBCMT linker conflict (see below).
-
-### Scheduler Decision Examples (default BW = 6 bytes/ns)
-
-| Scenario | Decision | Why |
-|----------|----------|-----|
-| ReLU [1024] | **CPU** | GPU cost ~1400 ns > CPU cost ~184 ns (transfer dominates) |
-| MatMul [512??512] | **GPU** | CPU cost ~157 ms >> GPU ~4.5 ms (compute savings dominate) |
-| MatMul with inputs on GPU | **GPU** | H2D skipped ??? even lower GPU cost |
-| Any op, 1 KB VRAM budget | **CPU** | VRAM limit prevents GPU allocation |
-| Unknown op | **CPU** | `operator_name_known=false`, reason="unknown-op:..." |
-
-### Key Design Decisions
-
-- **Policy / execution separation**: `SchedulingPolicy::decide()` is unit-testable with synthetic `DeviceContext` ??? no GPU needed for scheduler tests.
-- **Explicit reasons**: Every `ScheduleDecision` has a non-empty `reason` string. No silent fallbacks.
-- **`ScheduledGraph` wraps `Graph`**: Does not modify `Graph::execute()` or break the existing explicit-backend API. Scheduler is opt-in.
-- **Per-node device transfers**: `ScheduledGraph::execute()` handles H2D/D2H between nodes assigned to different backends transparently, using `Tensor::copyTo()`.
-- **Outputs always on CPU**: Matches the standard `Graph::execute()` contract.
-
-### Test Results
-
-```
-=== Phase 6 Scheduler Tests ===
-PASS: Test 1: ReLU [1024] ??? CPU preferred (transfer overhead > savings)
-PASS: Test 2: MatMul [512??512] ??? GPU preferred (compute savings > transfer)
-PASS: Test 3: GPU cost with residency <= GPU cost without residency
-PASS: Test 3: slow-BW + no residency ??? CPU preferred (H2D dominates)
-PASS: Test 3: slow-BW + residency ??? GPU preferred (H2D skipped, kernel+D2H < CPU)
-PASS: Test 4: VRAM limit ??? CPU fallback even for large MatMul
-PASS: Test 5: cuda_supported=false ??? always CPU
-PASS: Test 6: unknown op ??? CPU fallback (operator_name_known=false)
-PASS: Test 7: CPU cost matches hand calculation
-PASS: Test 7: GPU cost matches hand calculation (h2d+kernel+d2h)
-PASS: Test 8: ScheduledGraph single-node output matches Graph::execute()
-PASS: Test 9: multi-node ScheduledGraph output matches Graph::execute()
-=== All Phase 6 tests passed ===
-```
-
-**Test suite: 12/12 CPU tests passing** ??? (Phase 6 state)
-- 12 CPU test suites: Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Graph ??3, MemoryStats, GraphOptimizer, Scheduler
-- `test_graph_cuda.exe` (7 CUDA tests): built and **all 7 pass** on GTX 1050
-
-### CUDA Build Status (Phase 6)
-
-- `test_graph_cuda.exe` ??? **compiles, links, 7/7 CUDA tests pass** on GTX 1050 sm_61
-- Standalone CUDA kernel tests (`test_relu_cuda`, `test_matmul_cuda`, `test_softmax_cuda`, `test_layernorm_cuda`, `test_relu_op_cuda`) ??? link fails with pre-existing `LNK4098: LIBCMT / MSVCRT conflict` (MSVC 14.39 + CUDA 12.6 CRT mismatch, unrelated to Phase 6 changes)
-- `ScheduledGraph::execute()` on GPU path requires CUDA runtime; CPU-only build correctly falls back to CPU for all nodes (VRAM budget = 0 MiB when CUDA unavailable)
-
-## Engineering Principles
-
-1. **Correctness before optimization**
-2. **Benchmark before claiming improvements**
-3. **Keep CPU and CUDA implementations independently testable**
-4. **Avoid unnecessary dependencies**
-5. **Never hide CUDA errors**
-6. **Keep code interview-explainable**
-
-## Non-Goals
-
-- ??? Full PyTorch replacement
-- ??? Support every neural network operator
-- ??? Immediate transformer/LLM support
-- ??? Artificial complexity for repository size
-- ??? Optimization without measurements
-
-## License
-
-MIT License - See LICENSE file for details
-
-## Author
-
-Educational/research project demonstrating systems programming, GPU architecture, and performance engineering.
 
 ---
 
-*"A GPU operation is NOT automatically better than a CPU operation."*
+## Limitations and Future Work
 
-## MNIST Inference Demo
+**Current limitations:**
 
-ForgeRT includes a working MNIST digit-classification demo that demonstrates real
-neural network inference through the computation graph.
+- Windows-only; Linux build not tested
+- MNIST demo is CPU-only; CUDA inference not yet wired in
+- LNK4098 linker conflict prevents 4 standalone CUDA kernel tests from linking
+- MNIST demo takes a fixed input shape `[1, 784]` (no batching)
+- Weights use a custom binary format (FGWT); no ONNX import
+- Conv2D and attention operators are not implemented
+- GPU speedup factors in the scheduler are estimates, not measured end-to-end
 
-**Architecture:** Input[1,784] -> MatMul[784,128] -> Add bias -> ReLU -> MatMul[128,10] -> Add bias -> Softmax -> Output[1,10]
+**Possible next steps:**
 
-**Operators used:** MatMul, Add, ReLU, Softmax
+- Resolve LNK4098 to enable the full CUDA test suite
+- Wire CUDA backend into the MNIST demo and measure GPU inference latency
+- Replace estimated GPU speedups with measured data
+- Add batch dimension support
+- Publish pre-trained MNIST weights as a GitHub release asset
 
-**Verified results:** 10/10 test samples correct (100%), predictions and confidence
-scores match PyTorch reference implementation exactly.
+---
 
-### Quick start
+## Contributing
 
-**Step 1 - Obtain model weights (run once):**
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-\\ash
-cd models
-pip install torch torchvision numpy
-python train_mnist.py
-# Trains for ~2 min on CPU; achieves ~97% test accuracy
-# Writes: models/mnist_mlp.fgwt  (weights, ~400 KB)
-#         models/mnist_test_samples.fgwt  (10 test images)
-\
-**Step 2 - Build the demo:**
+To report a security issue, see [SECURITY.md](SECURITY.md).
 
-\\ash
-# Windows (MSVC 14.39 environment must be active)
-cmake --build build --config Release --target mnist_inference
-\
-**Step 3 - Run inference:**
+## License
 
-\\ash
-build\\examples\\mnist\\mnist_inference.exe models\\mnist_mlp.fgwt models\\mnist_test_samples.fgwt
-\
-**Expected output:**
+MIT - see [LICENSE](LICENSE).
 
-\ForgeRT MNIST Inference Demo
-============================
-Loaded 4 weight arrays:
-  fc1_weight: [784, 128]  fc1_bias: [1, 128]
-  fc2_weight: [128, 10]   fc2_bias: [1, 10]
-[OK] Weights loaded
+---
 
-Sample  0: Pred=7 True=7 Conf=0.9938 [OK]
-Sample  1: Pred=2 True=2 Conf=0.9986 [OK]
-...
-Sample  9: Pred=9 True=9 Conf=0.9994 [OK]
-Accuracy: 10/10 (100%)
-\
-**Note:** The .fgwt weight files and MNIST dataset are excluded from the
-repository by .gitignore. Run 	rain_mnist.py to regenerate them.
-CPU inference is fully verified. CUDA inference is not yet wired into this demo.
-
-## Docker (CPU-only)
-
-A multi-stage Dockerfile is provided for reproducible CPU builds and tests.
-Model weights are not bundled in the image; they must be generated separately
-and mounted at runtime.
-
-**Build the image:**
-
-\\ash
-docker build -t forgert:latest .
-\
-**Run the test suite inside the container:**
-
-\\ash
-docker run --rm forgert:latest ctest --output-on-failure
-\
-**Run the MNIST demo (mount weights from host):**
-
-\\ash
-# Generate weights on host first: cd models && python train_mnist.py
-docker run --rm \\
-  -v D:\Projects\ForgeRT/models:/weights:ro \\
-  forgert:latest \\
-  /forgert/mnist_inference /weights/mnist_mlp.fgwt /weights/mnist_test_samples.fgwt
-\
-**Current Docker status:** The Dockerfile is included and the build configuration
-is correct, but the image has not been built and verified on this machine.
-Docker is not installed in the current development environment. The build and
-run commands above reflect the intended usage; verify independently before
-relying on them.
-
-CUDA support is intentionally excluded from the Docker image.
-
+*"A GPU operation is not automatically better than a CPU operation."*
