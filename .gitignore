@@ -66,8 +66,12 @@ htmlcov/
 *.pt
 *.bin
 *.safetensors
+*.fgwt
+*.npz
 datasets/
-models/
+models/*.fgwt
+models/*.npz
+models/data/
 data/
 checkpoints/
 
@@ -84,6 +88,7 @@ profiling_results/
 logs/
 
 # Temporary files
+min.i
 *.tmp
 *.temp
 *.bak
@@ -106,3 +111,4 @@ Testing/
 
 # AI/agent context files (not part of the project, machine-local)
 Context/
+

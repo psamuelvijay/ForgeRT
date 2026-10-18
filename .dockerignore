@@ -1,0 +1,54 @@
+﻿# ForgeRT Docker Ignore File
+
+# Build artifacts
+build/
+cmake-build-*/
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.obj
+*.o
+
+# IDE files
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Model weights and datasets (not source files)
+models/*.fgwt
+models/*.npz
+models/data/
+data/
+*.pth
+*.pt
+
+# Git metadata
+.git/
+.gitignore
+
+# Documentation build artifacts
+docs/_build/
+docs/html/
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+min.i
+
+# Context files (local AI agent state)
+Context/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
