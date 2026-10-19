@@ -6,6 +6,7 @@ set(FORGERT_CUDA_SOURCES
     kernels/softmax_kernel.cu
     kernels/layernorm_kernel.cu
     kernels/add_kernel.cu
+    kernels/conv2d_kernel.cu
     kernels/cuda_memory.cu
 )
 

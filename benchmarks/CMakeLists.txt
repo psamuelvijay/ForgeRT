@@ -28,3 +28,14 @@ set_target_properties(measure_launch_overhead PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
 )
 message(STATUS "  - measure_launch_overhead")
+
+# Conv2D benchmark (Phase 8)
+add_executable(benchmark_conv2d benchmark_conv2d.cu)
+target_include_directories(benchmark_conv2d PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(benchmark_conv2d PRIVATE forgert forgert_cuda)
+set_target_properties(benchmark_conv2d PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
+)
+message(STATUS "  - benchmark_conv2d")

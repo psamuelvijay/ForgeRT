@@ -52,6 +52,10 @@ SchedulingPolicy::defaultProfiles() {
         {"Softmax",   {"Softmax",   6.0,   10.0, true}},
         {"LayerNorm", {"LayerNorm", 2.4,    4.0, true}},
         {"MatMul",    {"MatMul",  850.0,  120.0, true}},
+        // Conv2D: measured GTX 1050 sm_61, benchmarks/benchmark_conv2d.cu
+        // CPU 400 ns/elem (conservative mid; range 55-3200 by layer).
+        // GPU speedup 100x (conservative floor; measured 74-328x).
+        {"Conv2D",    {"Conv2D",  400.0,  100.0, true}},
     };
 }
 
