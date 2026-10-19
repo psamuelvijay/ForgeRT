@@ -45,103 +45,101 @@ add_executable(test_graph_softmax test_graph_softmax.cpp)
 target_include_directories(test_graph_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_graph_softmax PRIVATE forgert)
 
-# Memory stats tests (Phase 4) — memory tracking and transfer statistics
+# Memory stats tests (Phase 4)
 add_executable(test_memory_stats test_memory_stats.cpp)
 target_include_directories(test_memory_stats PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_memory_stats PRIVATE forgert)
 
-# Graph optimizer tests (Phase 5) — dead-node elimination pass
+# Graph optimizer tests (Phase 5)
 add_executable(test_graph_optimizer test_graph_optimizer.cpp)
 target_include_directories(test_graph_optimizer PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_graph_optimizer PRIVATE forgert)
 
-# Resource-aware scheduler tests (Phase 6) — CPU/GPU placement policy
+# Resource-aware scheduler tests (Phase 6)
 add_executable(test_scheduler test_scheduler.cpp)
 target_include_directories(test_scheduler PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_scheduler PRIVATE forgert)
 
-# CUDA graph integration tests (Phase 3) — proves Tensor→Graph→Operator→CUDA kernel
+# --- CUDA tests ---
+# Helpers used by all CUDA test targets
+set(CUDA_TEST_PROPS
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+)
+
+# CUDA graph integration tests -- uses forgert::Tensor + Graph + CUDA operators
 add_executable(test_graph_cuda test_graph_cuda.cu)
 target_include_directories(test_graph_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_graph_cuda PRIVATE forgert forgert_cuda)
-set_target_properties(test_graph_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+set_target_properties(test_graph_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# Tensor CUDA memory tests (Phase 4) — allocation, RAII, transfers, graph execution
+# Tensor CUDA memory tests -- allocation, RAII, copyTo, graph execution on GPU
 add_executable(test_tensor_cuda test_tensor_cuda.cu)
 target_include_directories(test_tensor_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_tensor_cuda PRIVATE forgert forgert_cuda)
-set_target_properties(test_tensor_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+set_target_properties(test_tensor_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# ReLU CUDA kernel tests (Phase 3) — standalone kernel correctness
+# ReLU CUDA kernel tests -- calls kernel via extern "C", no Tensor dependency
 add_executable(test_relu_cuda test_relu_cuda.cu)
 target_include_directories(test_relu_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_relu_cuda PRIVATE forgert_cuda)
-set_target_properties(test_relu_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+set_target_properties(test_relu_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# MatMul CUDA kernel tests (Phase 3) — standalone kernel correctness
+# MatMul CUDA kernel + operator tests -- uses forgert::Tensor, requires forgert
 add_executable(test_matmul_cuda test_matmul_cuda.cu)
 target_include_directories(test_matmul_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_matmul_cuda PRIVATE forgert_cuda)
-set_target_properties(test_matmul_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+target_link_libraries(test_matmul_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_matmul_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# Softmax CUDA kernel tests (Phase 3) — standalone kernel correctness
+# Softmax CUDA kernel + operator tests -- uses forgert::Tensor, requires forgert
 add_executable(test_softmax_cuda test_softmax_cuda.cu)
 target_include_directories(test_softmax_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_softmax_cuda PRIVATE forgert_cuda)
-set_target_properties(test_softmax_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+target_link_libraries(test_softmax_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_softmax_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# LayerNorm CUDA kernel tests (Phase 3) — standalone kernel correctness
+# LayerNorm CUDA kernel + operator tests -- uses forgert::Tensor, requires forgert
 add_executable(test_layernorm_cuda test_layernorm_cuda.cu)
 target_include_directories(test_layernorm_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_layernorm_cuda PRIVATE forgert_cuda)
-set_target_properties(test_layernorm_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+target_link_libraries(test_layernorm_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_layernorm_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
-# ReLU operator CUDA integration tests (Phase 3) — exercises the full
-# ReLUOp::execute(Backend::CUDA) dispatch path through the operator abstraction
+# ReLU operator CUDA dispatch tests -- uses forgert::Tensor, requires forgert
 add_executable(test_relu_op_cuda test_relu_op_cuda.cu)
 target_include_directories(test_relu_op_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_relu_op_cuda PRIVATE forgert_cuda)
-set_target_properties(test_relu_op_cuda PROPERTIES
-    CUDA_SEPARABLE_COMPILATION OFF
-    CUDA_ARCHITECTURES 61
-)
+target_link_libraries(test_relu_op_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_relu_op_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
+# Add CUDA operator tests -- uses forgert::Tensor, requires forgert
+add_executable(test_add_cuda test_add_cuda.cu)
+target_include_directories(test_add_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_add_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_add_cuda PROPERTIES ${CUDA_TEST_PROPS})
+
+# LayerNorm CUDA stress test -- memory leak detection
+add_executable(test_layernorm_stress test_layernorm_stress.cu)
+target_include_directories(test_layernorm_stress PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_layernorm_stress PRIVATE forgert forgert_cuda)
+set_target_properties(test_layernorm_stress PROPERTIES ${CUDA_TEST_PROPS})
 # Register with CTest
-add_test(NAME TensorTest        COMMAND test_tensor)
-add_test(NAME TensorCUDATest    COMMAND test_tensor_cuda)
-add_test(NAME OperatorTest      COMMAND test_operator)
-add_test(NAME ReLUTest          COMMAND test_relu)
-add_test(NAME MatMulTest        COMMAND test_matmul)
-add_test(NAME SoftmaxTest       COMMAND test_softmax)
-add_test(NAME LayerNormTest     COMMAND test_layernorm)
-add_test(NAME GraphTest         COMMAND test_graph)
-add_test(NAME GraphMatMulTest   COMMAND test_graph_matmul)
-add_test(NAME GraphSoftmaxTest  COMMAND test_graph_softmax)
-add_test(NAME MemoryStatsTest      COMMAND test_memory_stats)
-add_test(NAME GraphOptimizerTest   COMMAND test_graph_optimizer)
-add_test(NAME SchedulerTest        COMMAND test_scheduler)
-add_test(NAME ReLUCUDATest      COMMAND test_relu_cuda)
-add_test(NAME MatMulCUDATest    COMMAND test_matmul_cuda)
-add_test(NAME SoftmaxCUDATest   COMMAND test_softmax_cuda)
-add_test(NAME LayerNormCUDATest COMMAND test_layernorm_cuda)
-add_test(NAME ReLUOpCUDATest    COMMAND test_relu_op_cuda)
+add_test(NAME TensorTest         COMMAND test_tensor)
+add_test(NAME TensorCUDATest     COMMAND test_tensor_cuda)
+add_test(NAME OperatorTest       COMMAND test_operator)
+add_test(NAME ReLUTest           COMMAND test_relu)
+add_test(NAME MatMulTest         COMMAND test_matmul)
+add_test(NAME SoftmaxTest        COMMAND test_softmax)
+add_test(NAME LayerNormTest      COMMAND test_layernorm)
+add_test(NAME GraphTest          COMMAND test_graph)
+add_test(NAME GraphMatMulTest    COMMAND test_graph_matmul)
+add_test(NAME GraphSoftmaxTest   COMMAND test_graph_softmax)
+add_test(NAME MemoryStatsTest    COMMAND test_memory_stats)
+add_test(NAME GraphOptimizerTest COMMAND test_graph_optimizer)
+add_test(NAME SchedulerTest      COMMAND test_scheduler)
+add_test(NAME ReLUCUDATest       COMMAND test_relu_cuda)
+add_test(NAME MatMulCUDATest     COMMAND test_matmul_cuda)
+add_test(NAME SoftmaxCUDATest    COMMAND test_softmax_cuda)
+add_test(NAME LayerNormCUDATest  COMMAND test_layernorm_cuda)
+add_test(NAME ReLUOpCUDATest     COMMAND test_relu_op_cuda)
+add_test(NAME AddCUDATest        COMMAND test_add_cuda)
+add_test(NAME LayerNormStressTest COMMAND test_layernorm_stress)
 
 message(STATUS "ForgeRT tests configured")

@@ -82,7 +82,7 @@ static void test_cpu_preferred_small_relu() {
         /*inputs_already_on_gpu=*/false, ctx, profiles);
 
     // Expected: CPU cheaper because transfer cost dwarfs tiny compute saving.
-    // cpu = 0.18 * 1024 = 184.32 ns
+    // cpu = 0.40 * 1024 = 409.6 ns
     // gpu = 4096/6 + (0.18/5)*1024 + 4096/6
     //      = 682.7 + 36.9 + 682.7 = ~1402.3 ns  → CPU wins
     ok(decision.backend == Backend::CPU,
@@ -113,15 +113,15 @@ static void test_gpu_preferred_large_matmul() {
         "MatMul", out_elems, input_bytes, output_bytes,
         /*inputs_already_on_gpu=*/false, ctx, profiles);
 
-    // cpu = 600 * 262144 = 157,286,400 ns (~157 ms)
-    // gpu = (2*1MB)/6 + (600/40)*262144 + (1MB)/6
+    // cpu = 850 * 262144 = 222,822,400 ns (~223 ms)
+    // gpu = (2*1MB)/6 + (850/120)*262144 + (1MB)/6
     //     = ~349 ms transfer + ~3.9 ms kernel = but let's just check backend
     // Actually: input_bytes = 2*262144*4 = 2,097,152
     //           h2d = 2097152 / 6 = 349,525 ns
-    //           kernel = (600/40)*262144 = 3,932,160 ns
+    //           kernel = (850/120)*262144 = 1,857,813 ns
     //           d2h = 1048576 / 6 = 174,762 ns
-    //           gpu_total = ~4,456,447 ns
-    //           cpu_total = 600*262144 = 157,286,400 ns → GPU wins
+    //           gpu_total = ~2,882,100 ns
+    //           cpu_total = 850*262144 = 222,822,400 ns → GPU wins
     ok(decision.backend == Backend::CUDA,
        "Test 2: MatMul [512×512] → GPU preferred (compute savings > transfer)");
     ok(decision.estimated_cost_gpu_ns < decision.estimated_cost_cpu_ns,
@@ -139,10 +139,10 @@ static void test_residency_changes_decision() {
     // out_elems = 4096, input_bytes = 2*4096*4 = 32768, output_bytes = 16384
     // Without residency:
     //   h2d    = 32768/6 = 5461 ns
-    //   kernel = (600/40)*4096 = 61440 ns
+    //   kernel = (850/120)*4096 = 29,013 ns
     //   d2h    = 16384/6 = 2730 ns
-    //   gpu    = 69631 ns
-    //   cpu    = 600*4096 = 2,457,600 ns  → GPU wins
+    //   gpu    = 37,204 ns
+    //   cpu    = 850*4096 = 3,481,600 ns  → GPU wins
     // Let's verify with residency it ALSO wins (H2D skipped, even cheaper):
     const size_t out_elems    = 4096;
     const size_t input_bytes  = 2 * out_elems * sizeof(float);
@@ -172,14 +172,14 @@ static void test_residency_changes_decision() {
     // MatMul, N=10000 float32 elems:
     //   input_bytes  = 80000  (two [50×100] inputs)
     //   output_bytes = 40000
-    //   cpu          = 600 * 10000 = 6,000,000 ns
+    //   cpu          = 850 * 10000 = 8,500,000 ns
     //
     // With bw=0.01 bytes/ns:
     //   h2d    = 80000 / 0.01 = 8,000,000 ns
-    //   kernel = (600/40) * 10000 = 150,000 ns
+    //   kernel = (850/120) * 10000 = 70,833 ns
     //   d2h    = 40000 / 0.01 = 4,000,000 ns
-    //   gpu (no res) = 8,000,000 + 150,000 + 4,000,000 = 12,150,000 ns > cpu → CPU
-    //   gpu (res)   =            150,000 + 4,000,000 =  4,150,000 ns < cpu → GPU
+    //   gpu (no res) = 8,000,000 + 70,833 + 4,000,000 = 12,070,833 ns > cpu → CPU
+    //   gpu (res)   =            70,833 + 4,000,000 =  4,070,833 ns < cpu → GPU
     const size_t bline_elems    = 10000;
     const size_t bline_in_bytes  = 80000;
     const size_t bline_out_bytes = 40000;
@@ -286,8 +286,8 @@ static void test_cost_model_numbers() {
     const size_t input_bytes  = elems * sizeof(float);   // 4096
     const size_t output_bytes = elems * sizeof(float);   // 4096
     const double bw           = 6.0;
-    const double ns_per_elem  = 0.18;
-    const double speedup      = 5.0;
+    const double ns_per_elem  = 0.40;
+    const double speedup      = 3.0;
 
     double exp_cpu = expectedCpuCost(elems, ns_per_elem);
     double exp_gpu = expectedGpuCost(elems, ns_per_elem, speedup,

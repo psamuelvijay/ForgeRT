@@ -32,12 +32,26 @@ SchedulingPolicy::defaultProfiles() {
     // GPU speedup factors are conservative estimates for GTX 1050 (sm_61).
     // They are NOT measured (CUDA end-to-end test is blocked by LNK4098).
     // They are labeled as estimates throughout; do not claim measurements.
+    // Measured: benchmarks/benchmark_cuda.cu on GTX 1050 sm_61
+    // i5-9300H, CUDA 12.6, MSVC 14.39, Release build
+    // cpu_ns_per_elem: benchmark CPU column at largest size
+    //   ReLU  1M: 0.37 ns/elem  -> 0.40
+    //   Add   1M: 0.58 ns/elem  -> 0.60
+    //   Softmax [512,1024]: 6.1 ns/elem  -> 6.0  (unchanged)
+    //   LayerNorm [512,768]: 2.4 ns/elem -> 2.4  (unchanged)
+    //   MatMul [512x512]: 846 ns/elem    -> 850
+    // gpu_speedup: kernel-only cpu/kernel ratio (H2D+D2H modelled separately)
+    //   ReLU  1M:      3.2x measured -> 3.0
+    //   Add   1M:      4.1x measured -> 4.0
+    //   Softmax:      10.4x measured -> 10.0  (unchanged)
+    //   LayerNorm:     3.8x measured -> 4.0   (was 8x estimate)
+    //   MatMul [512x512]: 127x measured -> 120 (was 40x estimate)
     return {
-        {"ReLU",      {"ReLU",       0.18,  5.0,  true}},
-        {"Add",       {"Add",        0.18,  5.0,  true}},
-        {"Softmax",   {"Softmax",    6.0,  10.0,  true}},
-        {"LayerNorm", {"LayerNorm",  2.4,   8.0,  true}},
-        {"MatMul",    {"MatMul",   600.0,  40.0,  true}},
+        {"ReLU",      {"ReLU",      0.40,   3.0, true}},
+        {"Add",       {"Add",       0.60,   4.0, true}},
+        {"Softmax",   {"Softmax",   6.0,   10.0, true}},
+        {"LayerNorm", {"LayerNorm", 2.4,    4.0, true}},
+        {"MatMul",    {"MatMul",  850.0,  120.0, true}},
     };
 }
 
