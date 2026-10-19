@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @brief ForgeRT — Resource-Aware Neural Inference Runtime
+ * @brief ForgeRT â€” Resource-Aware Neural Inference Runtime
  *
  * Top-level convenience header. Includes all public APIs.
  *
@@ -26,6 +26,9 @@
 #include "forgert/operator/matmul.h"
 #include "forgert/operator/softmax.h"
 #include "forgert/operator/layernorm.h"
+#include "forgert/operator/conv2d.h"
+#include "forgert/operator/concat.h"
+#include "forgert/operator/maxpool2d.h"
 
 // Graph
 #include "forgert/graph/graph.h"
