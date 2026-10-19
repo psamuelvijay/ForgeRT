@@ -1,4 +1,4 @@
-﻿# ForgeRT Benchmarks
+# ForgeRT Benchmarks
 
 # CPU operator benchmarks
 add_executable(benchmark_operators benchmark_operators.cpp)
@@ -17,3 +17,14 @@ set_target_properties(benchmark_cuda PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
 )
 message(STATUS "  - benchmark_cuda")
+
+# Launch overhead measurement tool
+add_executable(measure_launch_overhead measure_launch_overhead.cu)
+target_include_directories(measure_launch_overhead PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(measure_launch_overhead PRIVATE forgert_cuda)
+set_target_properties(measure_launch_overhead PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
+)
+message(STATUS "  - measure_launch_overhead")

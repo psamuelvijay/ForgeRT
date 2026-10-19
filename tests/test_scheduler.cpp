@@ -53,11 +53,16 @@ static bool approxEq(double a, double b, double tol = 1e-6) {
 static double expectedCpuCost(size_t elems, double ns_per_elem) {
     return ns_per_elem * static_cast<double>(elems);
 }
+// CUDA_LAUNCH_OVERHEAD_NS must match the constant in scheduler.cpp.
+// Measured on GTX 1050 sm_61: ~20 us (benchmarks/measure_launch_overhead.cu).
+static constexpr double EXPECTED_LAUNCH_OVERHEAD_NS = 20000.0;
+
 static double expectedGpuCost(size_t elems, double ns_per_elem, double speedup,
                                size_t input_bytes, size_t output_bytes,
                                double bw, bool inputs_on_gpu) {
     double h2d    = inputs_on_gpu ? 0.0 : static_cast<double>(input_bytes) / bw;
-    double kernel = (ns_per_elem / speedup) * static_cast<double>(elems);
+    double kernel = EXPECTED_LAUNCH_OVERHEAD_NS
+                  + (ns_per_elem / speedup) * static_cast<double>(elems);
     double d2h    = static_cast<double>(output_bytes) / bw;
     return h2d + kernel + d2h;
 }
@@ -81,10 +86,11 @@ static void test_cpu_preferred_small_relu() {
         "ReLU", elems, input_bytes, output_bytes,
         /*inputs_already_on_gpu=*/false, ctx, profiles);
 
-    // Expected: CPU cheaper because transfer cost dwarfs tiny compute saving.
-    // cpu = 0.40 * 1024 = 409.6 ns
-    // gpu = 4096/6 + (0.18/5)*1024 + 4096/6
-    //      = 682.7 + 36.9 + 682.7 = ~1402.3 ns  → CPU wins
+    // Expected: CPU cheaper because launch overhead + transfer dwarfs compute saving.
+    // cpu    = 0.40 * 1024 = 409.6 ns
+    // launch = 20000 ns  (measured: GTX 1050 sm_61)
+    // gpu    = 4096/6 + 20000 + (0.40/3.0)*1024 + 4096/6
+    //        = 682.7 + 20000 + 136.5 + 682.7 = ~21502 ns  → CPU wins by ~52x
     ok(decision.backend == Backend::CPU,
        "Test 1: ReLU [1024] → CPU preferred (transfer overhead > savings)");
     ok(decision.operator_name_known,

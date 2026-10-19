@@ -104,7 +104,8 @@ add_subdirectory(src)
 add_subdirectory(cuda)
 add_subdirectory(tests)
 add_subdirectory(benchmarks)
-add_subdirectory(examples)
+
+
 
 # Print configuration summary
 message(STATUS "")

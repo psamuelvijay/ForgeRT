@@ -11,10 +11,10 @@
  * It does so with a simple, deterministic cost model:
  *
  *   cost_cpu  = ns_per_element_cpu[op] * num_elements
- *   cost_gpu  = h2d_transfer_ns(input_bytes)
+ *   cost_gpu  = h2d_transfer_ns(input_bytes)          [0 if residency]
+ *             + CUDA_LAUNCH_OVERHEAD_NS                  [20000 ns, measured]
  *             + ns_per_element_gpu[op] * num_elements
  *             + d2h_transfer_ns(output_bytes)
- *             + memory_pressure_penalty
  *
  *   decision  = argmin(cost_cpu, cost_gpu)
  *             subject to:

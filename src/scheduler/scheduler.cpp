@@ -100,15 +100,22 @@ ScheduleDecision SchedulingPolicy::decide(
         profile.cpu_ns_per_elem * static_cast<double>(num_output_elems);
 
     // GPU cost breakdown:
-    //   H2D: only if inputs are NOT already resident on the GPU device.
-    //   kernel: cpu_ns_per_elem / gpu_speedup * elements.
-    //   D2H: always needed to return results to CPU.
-    const double h2d_ns  = inputs_already_on_gpu
-                             ? 0.0
-                             : static_cast<double>(input_bytes) / bw;
-    const double kernel_ns = (profile.cpu_ns_per_elem / profile.gpu_speedup)
-                             * static_cast<double>(num_output_elems);
-    const double d2h_ns  = static_cast<double>(output_bytes) / bw;
+    //   H2D:    only if inputs are NOT already resident on the GPU device.
+    //   launch: fixed overhead per kernel dispatch, measured on GTX 1050 sm_61.
+    //           benchmarks/measure_launch_overhead.cu: null_kernel (256 threads)
+    //           = 20.2 us mean over 1000 iterations. Rounded to 20000 ns.
+    //           This constant dominates for small tensors and is the main reason
+    //           GPU is not beneficial below ~76K elements for ReLU with residency.
+    //   kernel: cpu_ns_per_elem / gpu_speedup * elements (compute portion only).
+    //   D2H:    always needed to return results to CPU.
+    const double h2d_ns    = inputs_already_on_gpu
+                               ? 0.0
+                               : static_cast<double>(input_bytes) / bw;
+    constexpr double CUDA_LAUNCH_OVERHEAD_NS = 20000.0;  // measured: GTX 1050 sm_61
+    const double kernel_ns = CUDA_LAUNCH_OVERHEAD_NS
+                             + (profile.cpu_ns_per_elem / profile.gpu_speedup)
+                               * static_cast<double>(num_output_elems);
+    const double d2h_ns    = static_cast<double>(output_bytes) / bw;
     const double cost_gpu_ns = h2d_ns + kernel_ns + d2h_ns;
 
     decision.estimated_cost_cpu_ns = cost_cpu_ns;
