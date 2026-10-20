@@ -112,3 +112,5 @@ Testing/
 # AI/agent context files (not part of the project, machine-local)
 Context/
 
+# ForgeRT converted models (generated from .onnx by tools/onnx_to_fgx.py)
+*.fgx

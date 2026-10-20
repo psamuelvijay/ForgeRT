@@ -185,4 +185,16 @@ add_test(NAME AddCUDATest         COMMAND test_add_cuda)
 add_test(NAME Conv2DCUDATest      COMMAND test_conv2d_cuda)
 add_test(NAME LayerNormStressTest COMMAND test_layernorm_stress)
 
+# --- Python-based importer tests (Phase 9) ---
+# Exit code 77 means a prerequisite (Python package or model file) is missing;
+# CTest reports those runs as Skipped, never Passed.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME OnnxToFgxConverterTest
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_to_fgx.py)
+    set_tests_properties(OnnxToFgxConverterTest PROPERTIES SKIP_RETURN_CODE 77)
+else()
+    message(STATUS "Python3 not found: Python-based importer tests not registered")
+endif()
+
 message(STATUS "ForgeRT tests configured")
