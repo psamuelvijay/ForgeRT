@@ -18,6 +18,7 @@
 
 #include "forgert/operator/reshape.h"
 #include "forgert/tensor/tensor.h"
+#include "forgert/graph/graph.h"
 
 #include <cstdint>
 #include <cstring>
@@ -267,6 +268,89 @@ static void test_error_shape_not_1d() {
     }
 }
 
+// ======================================================================
+// Fixed-target mode (used by the ONNX importer)
+// ======================================================================
+
+static bool dimsEq(const TensorShape& s, std::vector<size_t> d) { return s.dimensions() == d; }
+
+// ---- test 13: fixed target resolves exact output shape ----
+static void test_fixed_exact_shape() {
+    ReshapeOp op(std::vector<int64_t>{0, -1});
+    auto out = op.inferOutputShapes({TensorShape({1,1000,1,1})});
+    ok(dimsEq(out[0], {1,1000}), "Test 13: fixed [0,-1] on [1,1000,1,1] infers exactly [1,1000]");
+    ReshapeOp op2(std::vector<int64_t>{0, 2, 6});
+    ok(dimsEq(op2.inferOutputShapes({TensorShape({2,3,4})})[0], {2,2,6}),
+       "Test 13: fixed [0,2,6] on [2,3,4] infers exactly [2,2,6]");
+    ReshapeOp op3(std::vector<int64_t>{2, -1});
+    ok(dimsEq(op3.inferOutputShapes({TensorShape({2,3,4})})[0], {2,12}),
+       "Test 13: fixed [2,-1] on [2,3,4] infers exactly [2,12]");
+}
+
+// ---- test 14: both modes agree on resolution and data ----
+static void test_modes_agree() {
+    TensorShape sd({2,3,4});
+    Tensor data(sd, DataType::Float32, Device::CPU);
+    fill_seq(data, 0.25f);
+    ReshapeOp fixed(std::vector<int64_t>{0, -1});
+    TensorShape resolved = fixed.inferOutputShapes({sd})[0];
+    Tensor out_fixed(resolved, DataType::Float32, Device::CPU);
+    fixed.execute(Backend::CPU, {&data}, {&out_fixed});
+
+    ReshapeOp dyn;
+    Tensor shape = make_shape_tensor({0, -1});
+    Tensor out_dyn(resolved, DataType::Float32, Device::CPU);
+    dyn.execute(Backend::CPU, {&data, &shape}, {&out_dyn});
+
+    ok(dimsEq(resolved, {2,12}), "Test 14: fixed mode resolves [0,-1] on [2,3,4] to [2,12]");
+    ok(std::memcmp(out_fixed.data(), out_dyn.data(), data.numBytes()) == 0 &&
+       std::memcmp(out_fixed.data(), data.data(), data.numBytes()) == 0,
+       "Test 14: fixed and shape-tensor modes produce identical bytes");
+}
+
+// ---- test 15: Graph allocates the exact resolved shape ----
+static void test_fixed_in_graph() {
+    Graph g;
+    size_t in = g.addInput(TensorShape({1,1000,1,1}), DataType::Float32, "x");
+    auto outs = g.addNode(std::make_unique<ReshapeOp>(std::vector<int64_t>{0, -1}), {in}, "flatten");
+    g.markOutput(outs[0]);
+    g.validate();
+    ok(dimsEq(g.getValueShape(outs[0]), {1,1000}), "Test 15: graph value shape is exactly [1,1000]");
+
+    Tensor x(TensorShape({1,1000,1,1}), DataType::Float32, Device::CPU);
+    fill_seq(x, -3.0f);
+    auto res = g.execute({&x}, Backend::CPU);
+    ok(dimsEq(res[0]->shape(), {1,1000}), "Test 15: executed output tensor shape is exactly [1,1000]");
+    ok(std::memcmp(res[0]->data(), x.data(), x.numBytes()) == 0, "Test 15: graph output bytes unchanged");
+}
+
+// ---- test 16: fixed-mode errors ----
+static void test_fixed_errors() {
+    auto throws = [](auto fn) { try { fn(); return false; } catch (const std::invalid_argument&) { return true; } };
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{2, -2}); }), "Test 16: value -2 rejected at construction");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{}); }), "Test 16: empty target rejected at construction");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{-1, -1}); op.inferOutputShapes({TensorShape({6})}); }),
+       "Test 16: two -1 rejected in shape inference");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{0, 5}); op.inferOutputShapes({TensorShape({5})}); }),
+       "Test 16: 0 beyond input rank rejected");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{2, 4}); op.inferOutputShapes({TensorShape({6})}); }),
+       "Test 16: element-count mismatch rejected");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{4, -1}); op.inferOutputShapes({TensorShape({6})}); }),
+       "Test 16: -1 with non-dividing known dims rejected");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{0, -1});
+                  op.inferOutputShapes({TensorShape({6}), TensorShape({2})}); }),
+       "Test 16: fixed mode rejects a second input");
+    ok(throws([]{ ReshapeOp op(std::vector<int64_t>{0, -1});
+                  Tensor d(TensorShape({2,3}), DataType::Float32, Device::CPU);
+                  Tensor o(TensorShape({3,2}), DataType::Float32, Device::CPU);
+                  op.executeCPU({&d}, {&o}); }),
+       "Test 16: output tensor with wrong exact shape rejected");
+    ReshapeOp src(std::vector<int64_t>{0, -1});
+    auto c = src.clone();
+    ok(dimsEq(c->inferOutputShapes({TensorShape({1,1000,1,1})})[0], {1,1000}),
+       "Test 16: clone preserves the fixed target");
+}
+
 int main() {
     std::cout << "=== ReshapeOp CPU Tests ===\n\n";
     test_squeezenet_case();
@@ -281,6 +365,10 @@ int main() {
     test_error_wrong_count();
     test_error_shape_not_int32();
     test_error_shape_not_1d();
+    test_fixed_exact_shape();
+    test_modes_agree();
+    test_fixed_in_graph();
+    test_fixed_errors();
     std::cout << "\n=== All ReshapeOp tests PASSED ===\n";
     return 0;
 }
