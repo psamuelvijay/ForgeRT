@@ -31,6 +31,7 @@
 #include "forgert/operator/maxpool2d.h"
 #include "forgert/operator/averagepool2d.h"
 #include "forgert/operator/dropout.h"
+#include "forgert/operator/reshape.h"
 
 // Graph
 #include "forgert/graph/graph.h"
