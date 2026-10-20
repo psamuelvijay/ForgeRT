@@ -198,6 +198,18 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME OnnxToFgxConverterTest
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_to_fgx.py)
     set_tests_properties(OnnxToFgxConverterTest PROPERTIES SKIP_RETURN_CODE 77)
+    # Python converter manifest vs C++ fgx_dump of the written file
+    add_test(NAME FgxCrossLanguageSyntheticTest
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/fgx_cross_check.py
+                     --dump $<TARGET_FILE:fgx_dump> --synthetic
+                     --workdir ${CMAKE_CURRENT_BINARY_DIR}/fgx_work)
+    add_test(NAME FgxCrossLanguageSqueezeNetTest
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/fgx_cross_check.py
+                     --dump $<TARGET_FILE:fgx_dump>
+                     --model ${CMAKE_SOURCE_DIR}/models/squeezenet1.1-7.onnx
+                     --workdir ${CMAKE_CURRENT_BINARY_DIR}/fgx_work)
+    set_tests_properties(FgxCrossLanguageSyntheticTest FgxCrossLanguageSqueezeNetTest
+                         PROPERTIES SKIP_RETURN_CODE 77)
 else()
     message(STATUS "Python3 not found: Python-based importer tests not registered")
 endif()
