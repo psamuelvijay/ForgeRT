@@ -9,9 +9,10 @@ in PCIe transfer overhead, kernel launch latency, and VRAM budget — rather
 than blindly offloading everything to the GPU.
 
 > **Status — Phase 8 in progress.**
-> 7 operators implemented (5 with CUDA). 24 tests pass.
-> SqueezeNet 1.1 inference is the current milestone;
-> the ONNX importer is not yet built.
+> 11 operators implemented (6 with CUDA). 27 tests pass.
+> All 7 operator types used by SqueezeNet 1.1 now exist on CPU, but the
+> ONNX importer is not built and end-to-end SqueezeNet inference has
+> **not** been verified against ONNX Runtime.
 
 ---
 
@@ -51,6 +52,9 @@ It has no GPU dependency and is unit-testable without hardware.
 | **Conv2D**  | Direct conv, optional bias, NCHW         | `[N,C,H,W]`   | ✅ Tested |
 | **Concat**  | Axis concatenation, N≥2 inputs           | `[N,C,H,W]`   | ✅ Tested |
 | **MaxPool2D** | Sliding-window max, NCHW              | `[N,C,H,W]`   | ✅ Tested |
+| **AveragePool2D** | Sliding-window mean, `count_include_pad` | `[N,C,H,W]` | ✅ Tested |
+| **Dropout** | Inference identity (no mask, no scaling) | any       | ✅ Tested |
+| **Reshape** | ONNX `0` / `-1` wildcards, Int32 shape tensor | any  | ✅ Tested |
 
 ### CUDA backend
 
@@ -63,8 +67,10 @@ It has no GPU dependency and is unit-testable without hardware.
 | **Add**     | Element-wise with broadcast  | ✅ `AddCUDATest`        |
 | **Conv2D**  | im2col + 16×16 tiled GEMM    | ✅ `Conv2DCUDATest`     |
 
-Concat and MaxPool2D are CPU-only by design: for SqueezeNet's spatial sizes,
-PCIe transfer cost + 20 µs launch overhead exceeds any compute saving.
+Concat, MaxPool2D, AveragePool2D, Dropout, and Reshape are CPU-only as a
+Phase 8 scope decision: at SqueezeNet's tensor sizes, PCIe transfer cost plus
+the measured 20 µs launch overhead outweighs the compute these ops do. CUDA
+backends are not ruled out for future phases.
 
 ---
 
@@ -127,22 +133,17 @@ Expected: 10/10 correct, confidence scores matching PyTorch to 4 decimal places.
 
 ## Test Results
 
-All 24 tests verified on GTX 1050 / CUDA 12.6 / MSVC 14.39:
+All 27 tests verified on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`):
 
 ```
- 1  TensorTest            PASS      7  LayerNormTest         PASS
- 2  TensorCUDATest        PASS      8  Conv2DTest            PASS
- 3  OperatorTest          PASS      9  ConcatTest            PASS
- 4  ReLUTest              PASS     10  MaxPool2DTest         PASS
- 5  MatMulTest            PASS     11  GraphTest             PASS
- 6  SoftmaxTest           PASS     12  GraphMatMulTest       PASS
+CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm,
+                Conv2D, Concat, MaxPool2D, AveragePool2D, Dropout, Reshape
+Graph/runtime   Graph, GraphMatMul, GraphSoftmax, MemoryStats,
+                GraphOptimizer, Scheduler
+CUDA            TensorCUDA, ReLUCUDA, MatMulCUDA, SoftmaxCUDA, LayerNormCUDA,
+                ReLUOpCUDA, AddCUDA, Conv2DCUDA, LayerNormStress (10k iters)
 
-13  GraphSoftmaxTest      PASS     19  ReLUCUDATest          PASS
-14  MemoryStatsTest       PASS     20  MatMulCUDATest        PASS
-15  GraphOptimizerTest    PASS     21  SoftmaxCUDATest       PASS
-16  SchedulerTest         PASS     22  LayerNormCUDATest     PASS
-17  ReLUOpCUDATest        PASS     23  AddCUDATest           PASS
-18  Conv2DCUDATest        PASS     24  LayerNormStressTest   PASS
+100% tests passed, 0 tests failed out of 27
 ```
 
 ---
@@ -201,8 +202,12 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
 
 - **Windows only** — Linux build is untested.
 - **No ONNX importer yet** — model weights must be in the custom FGWT format.
-- **SqueezeNet not yet verified** — AveragePool, Reshape, and Dropout still needed;
-  end-to-end ONNX inference has not been validated against a reference runtime.
+- **SqueezeNet not yet verified** — every operator the graph needs now exists,
+  but there is no ONNX importer yet and no end-to-end comparison against
+  ONNX Runtime has been run.
+- **Reshape output shape** — `Tensor` shapes are immutable, so the caller must
+  pre-allocate Reshape's output with the resolved shape; `inferOutputShapes`
+  only guarantees the element count. The importer will need to handle this.
 - **CPU-bound Conv2D** — the naive direct implementation is correct but slow;
   CUDA im2col+GEMM is implemented but not yet tested at full SqueezeNet scale.
 - **No batching beyond N=1** — the graph engine supports N>1 but demos use N=1.
@@ -219,8 +224,8 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
 | 5 | Graph optimizer (dead-node elimination) | ✅ Done |
 | 6 | Resource-aware scheduler | ✅ Done |
 | 7 | CUDA test reliability + scheduler calibration | ✅ Done |
-| 8 | Conv2D, Concat, MaxPool2D | ✅ Done |
-| 8 | AveragePool + minimal ONNX importer | 🔄 Next |
+| 8 | Conv2D, Concat, MaxPool2D, AveragePool2D, Dropout, Reshape | ✅ Done |
+| 8 | Minimal ONNX importer (`.fgx` converter + C++ reader) | 🔄 Next |
 | 8 | SqueezeNet end-to-end inference | 🔄 Next |
 | 9 | Benchmarking vs ONNX Runtime | Planned |
 | 10 | Visualisation and final report | Planned |
