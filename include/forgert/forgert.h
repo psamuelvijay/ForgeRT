@@ -30,6 +30,7 @@
 #include "forgert/operator/concat.h"
 #include "forgert/operator/maxpool2d.h"
 #include "forgert/operator/averagepool2d.h"
+#include "forgert/operator/dropout.h"
 
 // Graph
 #include "forgert/graph/graph.h"
