@@ -215,6 +215,14 @@ if(Python3_Interpreter_FOUND)
                      --workdir ${CMAKE_CURRENT_BINARY_DIR}/fgx_work)
     set_tests_properties(FgxCrossLanguageSyntheticTest FgxCrossLanguageSqueezeNetTest
                          PROPERTIES SKIP_RETURN_CODE 77)
+    # End-to-end: ForgeRT vs ONNX Runtime on 10 seeded inputs (~15 s, needs onnxruntime)
+    add_test(NAME SqueezeNetE2ETest
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/validate_squeezenet.py
+                     --runner $<TARGET_FILE:forgert_run>
+                     --model ${CMAKE_SOURCE_DIR}/models/squeezenet1.1-7.onnx
+                     --workdir ${CMAKE_CURRENT_BINARY_DIR}/e2e_work)
+    set_tests_properties(SqueezeNetE2ETest PROPERTIES
+                         SKIP_RETURN_CODE 77 TIMEOUT 900 LABELS "slow;e2e")
 else()
     message(STATUS "Python3 not found: Python-based importer tests not registered")
 endif()
