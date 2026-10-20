@@ -93,6 +93,10 @@ target_link_libraries(test_scheduler PRIVATE forgert)
 add_executable(test_fgx_reader test_fgx_reader.cpp)
 target_link_libraries(test_fgx_reader PRIVATE forgert_import)
 
+# ONNX importer tests (Phase 9) -- .fgx model -> Graph, CPU-only
+add_executable(test_importer test_importer.cpp)
+target_link_libraries(test_importer PRIVATE forgert_import)
+
 # --- CUDA tests ---
 # Helpers used by all CUDA test targets
 set(CUDA_TEST_PROPS
@@ -180,6 +184,7 @@ add_test(NAME GraphSoftmaxTest    COMMAND test_graph_softmax)
 add_test(NAME MemoryStatsTest     COMMAND test_memory_stats)
 add_test(NAME GraphOptimizerTest  COMMAND test_graph_optimizer)
 add_test(NAME FgxReaderTest       COMMAND test_fgx_reader)
+add_test(NAME ImporterTest        COMMAND test_importer)
 add_test(NAME SchedulerTest       COMMAND test_scheduler)
 add_test(NAME ReLUCUDATest        COMMAND test_relu_cuda)
 add_test(NAME MatMulCUDATest      COMMAND test_matmul_cuda)

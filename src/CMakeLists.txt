@@ -30,6 +30,7 @@ message(STATUS "ForgeRT core library configured")
 # FORGERT_CUDA_AVAILABLE, which would violate the one-definition rule.
 add_library(forgert_import
     import/fgx_reader.cpp
+    import/importer.cpp
 )
 target_include_directories(forgert_import PUBLIC ${FORGERT_INCLUDE_DIR})
 target_link_libraries(forgert_import PUBLIC forgert)
