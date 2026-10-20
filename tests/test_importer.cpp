@@ -5,7 +5,9 @@
  * imported, run, and compared against a hand-written reference; then each
  * error path is hit by changing one thing.
  */
+#include "forgert/graph/optimizer.h"
 #include "forgert/import/importer.h"
+#include "forgert/scheduler/scheduler.h"
 
 #include <algorithm>
 #include <cmath>
@@ -201,11 +203,52 @@ static void testNarrow() {
     catch (const ImportError&) { ok(true, "-2^31-1 rejected"); }
 }
 
+// Weights are ordinary graph inputs, so the existing optimizer and scheduler must
+// keep working on an imported graph (cloned fixed-target Reshape, input order).
+static void testOptimizerAndScheduler() {
+    ImportedModel im = ImportedModel::fromFgx(tinyModel());
+    Tensor x(TensorShape({1, 2, 4, 4}), DataType::Float32, Device::CPU);
+    float* xp = static_cast<float*>(x.data());
+    for (int i = 0; i < 32; ++i) xp[i] = static_cast<float>(i) * 0.3f - 4.0f;
+    auto baseline = im.run({&x});
+
+    // Rebuild the full input list (data + weights) the same way run() does.
+    std::vector<const Tensor*> all{&x};
+    const Graph& g = im.graph();
+    ok(g.numInputs() == 3, "imported graph has data + 2 weight inputs");
+
+    GraphOptimizer opt;
+    auto [optimized, report] = opt.optimize(g);
+    ok(report.nodes_removed == 0 && optimized.numNodes() == g.numNodes(),
+       "optimizer keeps all 7 live nodes of the imported graph");
+    ok(optimized.getInputIds().size() == 3 && optimized.numOutputs() == 1, "optimizer preserves input and output counts");
+    ok(optimized.getValueShape(optimized.getOutputIds()[0]).dimensions() == std::vector<size_t>({1, 4}),
+       "optimizer preserves the exact Reshape output shape [1,4] (cloned fixed target)");
+
+    // Fetch the weight tensors through a second import so we can feed the optimized graph.
+    // (ImportedModel owns them privately; the optimized graph takes the same input order.)
+    fgx::Model fm = tinyModel();
+    Tensor w(TensorShape({2, 2, 1, 1}), DataType::Float32, Device::CPU);
+    Tensor b(TensorShape({2}), DataType::Float32, Device::CPU);
+    std::memcpy(w.data(), fm.initializers[0].data.data(), 16);
+    std::memcpy(b.data(), fm.initializers[1].data.data(), 8);
+    auto optOut = optimized.execute({&x, &w, &b}, Backend::CPU);
+    ok(optOut.size() == 1 && std::memcmp(optOut[0]->data(), baseline[0]->data(), 16) == 0,
+       "optimized graph output is bit-identical to the unoptimized import");
+
+    ScheduledGraph sg(g);
+    sg.setVramBudgetBytes(0);   // forces every node to CPU
+    auto schedOut = sg.execute({&x, &w, &b});
+    ok(schedOut.size() == 1 && std::memcmp(schedOut[0]->data(), baseline[0]->data(), 16) == 0,
+       "ScheduledGraph (CPU-forced) output is bit-identical to the import");
+}
+
 int main() {
     std::cout << "=== ONNX importer tests ===\n";
     testValidModel();
     testErrors();
     testNarrow();
+    testOptimizerAndScheduler();
     std::cout << (g_fail ? "\n" + std::to_string(g_fail) + " FAILED\n" : "\n=== All importer tests PASSED ===\n");
     return g_fail ? 1 : 0;
 }
