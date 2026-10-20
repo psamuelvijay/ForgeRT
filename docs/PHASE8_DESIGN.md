@@ -1,5 +1,16 @@
 ﻿# Phase 8: ONNX Model Import - Technical Design
 
+> **Corrections (Phase 9, verified against the real model).** This design predates the
+> importer. Where it disagrees with the implementation, trust
+> [`ONNX_IMPORT.md`](ONNX_IMPORT.md) and [`FGX_FORMAT.md`](FGX_FORMAT.md). Known errors
+> below: SqueezeNet's weights are stored in `float_data`, not `raw_data`; the model has
+> zero `value_info` entries (the converter generates them with shape inference);
+> `graph.input` lists initializers too; the "Already Supported (5/7)" list wrongly marks
+> Conv2D, MaxPool, Concat and GlobalAveragePool; the graph uses `AveragePool`, not
+> `GlobalAveragePool` or Softmax; the Reshape target is `[0, -1]`; and the importer
+> registers weights as graph inputs because `Graph` has no constants.
+
+
 ## Executive Summary
 
 ForgeRT currently has:

@@ -8,11 +8,12 @@ to whichever device the scheduler estimates will finish first — factoring
 in PCIe transfer overhead, kernel launch latency, and VRAM budget — rather
 than blindly offloading everything to the GPU.
 
-> **Status — Phase 8 in progress.**
-> 11 operators implemented (6 with CUDA). 27 tests pass.
-> All 7 operator types used by SqueezeNet 1.1 now exist on CPU, but the
-> ONNX importer is not built and end-to-end SqueezeNet inference has
-> **not** been verified against ONNX Runtime.
+> **Status: Phase 8 complete.**
+> 11 operators (6 with CUDA). An ONNX opset 7 subset can be converted and run on CPU.
+> SqueezeNet 1.1 matched ONNX Runtime 1.29.0 on 10 seeded random inputs (max abs
+> difference 5.7e-06, same argmax each time). CPU path only; real-image accuracy,
+> other models, and CUDA execution of imported models are not validated.
+> Details: [`docs/ONNX_IMPORT.md`](docs/ONNX_IMPORT.md).
 
 ---
 
@@ -129,22 +130,42 @@ build\examples\mnist\mnist_inference.exe models\mnist_mlp.fgwt models\mnist_test
 
 Expected: 10/10 correct, confidence scores matching PyTorch to 4 decimal places.
 
+**Run SqueezeNet 1.1 (ONNX import, CPU):**
+
+```batch
+python tools\fetch_squeezenet.py        REM downloads models\squeezenet1.1-7.onnx, verifies SHA-256
+python tools\onnx_to_fgx.py models\squeezenet1.1-7.onnx models\squeezenet1.1-7.fgx
+build\apps\forgert_run.exe models\squeezenet1.1-7.fgx input.bin output.bin
+python tools\validate_squeezenet.py --runner build\apps\forgert_run.exe
+```
+
+`input.bin` is 1x3x224x224 raw little-endian float32; `output.bin` receives 1000 logits.
+The Python tools need `pip install onnx onnxruntime numpy`. Format:
+[`docs/FGX_FORMAT.md`](docs/FGX_FORMAT.md).
+
 ---
 
 ## Test Results
 
-All 27 tests verified on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`):
+All 33 tests passed on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped):
 
 ```
-CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm,
-                Conv2D, Concat, MaxPool2D, AveragePool2D, Dropout, Reshape
-Graph/runtime   Graph, GraphMatMul, GraphSoftmax, MemoryStats,
-                GraphOptimizer, Scheduler
+CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Conv2D,
+                Concat, MaxPool2D, AveragePool2D, Dropout, Reshape
+Graph/runtime   Graph, GraphMatMul, GraphSoftmax, MemoryStats, GraphOptimizer,
+                Scheduler
+Importer        FgxReader (76 checks), Importer (44 checks),
+                OnnxToFgxConverter, FgxCrossLanguage x2
+End-to-end      SqueezeNetE2E (10 inputs vs ONNX Runtime, ~15 s)
 CUDA            TensorCUDA, ReLUCUDA, MatMulCUDA, SoftmaxCUDA, LayerNormCUDA,
                 ReLUOpCUDA, AddCUDA, Conv2DCUDA, LayerNormStress (10k iters)
 
-100% tests passed, 0 tests failed out of 27
+100% tests passed, 0 tests failed out of 33
 ```
+
+The Python-based tests (converter, cross-language, end-to-end) exit with code 77 and
+are reported by CTest as *Skipped* when `onnx`/`onnxruntime` or the model file is
+missing; they are never counted as passed in that case.
 
 ---
 
@@ -201,13 +222,16 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
 ## Limitations
 
 - **Windows only** — Linux build is untested.
-- **No ONNX importer yet** — model weights must be in the custom FGWT format.
-- **SqueezeNet not yet verified** — every operator the graph needs now exists,
-  but there is no ONNX importer yet and no end-to-end comparison against
-  ONNX Runtime has been run.
-- **Reshape output shape** — `Tensor` shapes are immutable, so the caller must
-  pre-allocate Reshape's output with the resolved shape; `inferOutputShapes`
-  only guarantees the element count. The importer will need to handle this.
+- **ONNX support is a narrow subset** - opset 7 only; Conv, Relu, Concat, MaxPool,
+  AveragePool, Dropout, Reshape; static float32 shapes; no groups, dilation or
+  asymmetric padding. Anything else is rejected with the node and op named.
+- **SqueezeNet validation scope** - 10 seeded random inputs on the CPU path against
+  ONNX Runtime. Not validated: real images or accuracy, CUDA execution of imported
+  models, other models, batch size above 1.
+- **Weights are graph inputs** - `Graph` has no constant nodes yet, so the scheduler
+  would count weight transfers on every run if an imported model were placed on GPU.
+- **Slow CPU inference** - about 1.3 s per SqueezeNet inference (naive single-threaded
+  convolution). No speed comparison with ONNX Runtime has been measured.
 - **CPU-bound Conv2D** — the naive direct implementation is correct but slow;
   CUDA im2col+GEMM is implemented but not yet tested at full SqueezeNet scale.
 - **No batching beyond N=1** — the graph engine supports N>1 but demos use N=1.
@@ -225,8 +249,8 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
 | 6 | Resource-aware scheduler | ✅ Done |
 | 7 | CUDA test reliability + scheduler calibration | ✅ Done |
 | 8 | Conv2D, Concat, MaxPool2D, AveragePool2D, Dropout, Reshape | ✅ Done |
-| 8 | Minimal ONNX importer (`.fgx` converter + C++ reader) | 🔄 Next |
-| 8 | SqueezeNet end-to-end inference | 🔄 Next |
+| 8 | ONNX importer: `.fgx` converter, strict reader, CPU runner | ✅ Done |
+| 8 | SqueezeNet 1.1 CPU inference matches ONNX Runtime (10 seeded inputs) | ✅ Done |
 | 9 | Benchmarking vs ONNX Runtime | Planned |
 | 10 | Visualisation and final report | Planned |
 
