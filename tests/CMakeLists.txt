@@ -89,6 +89,10 @@ add_executable(test_scheduler test_scheduler.cpp)
 target_include_directories(test_scheduler PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_scheduler PRIVATE forgert)
 
+# .fgx reader tests (Phase 9) -- valid parse + malformed-file suite, CPU-only
+add_executable(test_fgx_reader test_fgx_reader.cpp)
+target_link_libraries(test_fgx_reader PRIVATE forgert_import)
+
 # --- CUDA tests ---
 # Helpers used by all CUDA test targets
 set(CUDA_TEST_PROPS
@@ -175,6 +179,7 @@ add_test(NAME GraphMatMulTest     COMMAND test_graph_matmul)
 add_test(NAME GraphSoftmaxTest    COMMAND test_graph_softmax)
 add_test(NAME MemoryStatsTest     COMMAND test_memory_stats)
 add_test(NAME GraphOptimizerTest  COMMAND test_graph_optimizer)
+add_test(NAME FgxReaderTest       COMMAND test_fgx_reader)
 add_test(NAME SchedulerTest       COMMAND test_scheduler)
 add_test(NAME ReLUCUDATest        COMMAND test_relu_cuda)
 add_test(NAME MatMulCUDATest      COMMAND test_matmul_cuda)
