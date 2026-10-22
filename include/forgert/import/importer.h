@@ -65,6 +65,12 @@ public:
     /// Number of float32 initializers registered as extra graph inputs.
     size_t numWeights() const { return weights_.size(); }
 
+    /// Weight tensors (float32 initializers) registered as extra graph inputs,
+    /// in the order they were appended after the caller inputs. Exposed read-only
+    /// so a caller can assemble the full input vector (caller inputs + weights) for
+    /// an alternative executor such as ScheduledGraph.
+    const std::vector<std::unique_ptr<Tensor>>& weights() const { return weights_; }
+
     /// Non-fatal notes, e.g. a node output with no VINF entry to check against.
     const std::vector<std::string>& warnings() const { return warnings_; }
 

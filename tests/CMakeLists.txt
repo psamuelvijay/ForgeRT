@@ -164,6 +164,25 @@ target_include_directories(test_conv2d_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_conv2d_cuda PRIVATE forgert forgert_cuda)
 set_target_properties(test_conv2d_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
+# Scheduled (mixed CPU/CUDA) execution of the imported SqueezeNet graph.
+# Compiles the importer sources FRESH with FORGERT_CUDA_AVAILABLE (inherited from
+# forgert_cuda) so every TU agrees on operator definitions -- no ODR conflict.
+# Deliberately does NOT link the CPU-only forgert_import archive, preserving the
+# forgert_import / forgert_cuda separation documented in src/CMakeLists.txt.
+add_executable(test_scheduled_cuda
+    test_scheduled_cuda.cu
+    ${CMAKE_SOURCE_DIR}/src/import/importer.cpp
+    ${CMAKE_SOURCE_DIR}/src/import/fgx_reader.cpp
+    # scheduler.cpp is recompiled here WITH FORGERT_CUDA_AVAILABLE so that its
+    # internal Tensor::copyTo calls resolve to the CUDA-capable inline (the copy
+    # in the CPU-only forgert core library throws on any CUDA transfer). The
+    # static-lib member for ScheduledGraph is then not pulled from forgert.
+    ${CMAKE_SOURCE_DIR}/src/scheduler/scheduler.cpp
+)
+target_include_directories(test_scheduled_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_scheduled_cuda PRIVATE forgert forgert_cuda)
+set_target_properties(test_scheduled_cuda PROPERTIES ${CUDA_TEST_PROPS})
+
 # Register with CTest
 add_test(NAME TensorTest          COMMAND test_tensor)
 add_test(NAME TensorCUDATest      COMMAND test_tensor_cuda)
@@ -193,6 +212,9 @@ add_test(NAME LayerNormCUDATest   COMMAND test_layernorm_cuda)
 add_test(NAME ReLUOpCUDATest      COMMAND test_relu_op_cuda)
 add_test(NAME AddCUDATest         COMMAND test_add_cuda)
 add_test(NAME Conv2DCUDATest      COMMAND test_conv2d_cuda)
+add_test(NAME ScheduledCUDATest   COMMAND test_scheduled_cuda
+         ${CMAKE_CURRENT_BINARY_DIR}/e2e_work/squeezenet1.1-7.fgx)
+set_tests_properties(ScheduledCUDATest PROPERTIES SKIP_RETURN_CODE 77 LABELS "cuda;e2e")
 add_test(NAME LayerNormStressTest COMMAND test_layernorm_stress)
 
 # --- Python-based importer tests (Phase 9) ---
