@@ -1,0 +1,289 @@
+{
+  "what": "ForgeRT SqueezeNet 1.1 CPU latency, process-level repetition (one inference per launch)",
+  "generated": "2026-10-21T20:59:18+05:30",
+  "command": [
+    "build/apps/forgert_run.exe",
+    "<workdir>/squeezenet1.1-7.fgx",
+    "<workdir>/input.bin",
+    "<workdir>/output.bin"
+  ],
+  "script_args": [
+    "--runner",
+    "build/apps/forgert_run.exe",
+    "--warmup",
+    "3",
+    "--runs",
+    "20",
+    "--json",
+    "docs/SQUEEZENET_CPU_LATENCY.json"
+  ],
+  "settings": {
+    "warmup": 3,
+    "runs": 20,
+    "seed": 20261020,
+    "timer": "time.perf_counter_ns"
+  },
+  "definitions": {
+    "wall_ms": "launcher-side wall clock around the whole process: end-to-end process latency",
+    "import_ms": "runner-reported ImportedModel::load()",
+    "inference_ms": "runner-reported single model->run() call; first and only inference in the process",
+    "overhead_ms": "wall_ms - import_ms - inference_ms"
+  },
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor_string": "Intel64 Family 6 Model 158 Stepping 13, GenuineIntel",
+    "logical_cpus": 8,
+    "python": "3.14.3",
+    "numpy": "2.4.3",
+    "git_head": "7fcd386",
+    "git_tracked_changes": 2
+  },
+  "artifacts": {
+    "runner": {
+      "path": "build/apps/forgert_run.exe",
+      "bytes": 213504,
+      "sha256": "51997d9d1e7531123f6cb09c9270e6e6d36bbc279ca15539940d7812aa4b37aa"
+    },
+    "fgx": {
+      "path": "<workdir>/squeezenet1.1-7.fgx",
+      "bytes": 4962820,
+      "sha256": "8323fce1a37a9167d37ef95c006304f1977d07a7d38fbad7f1208eaa82e4c0e0"
+    },
+    "model_onnx_sha256": "1eeff551a67ae8d565ca33b572fc4b66e3ef357b0eb2863bb9ff47a918cc4088",
+    "input_sha256": "ba8e1b9d79c1133a2229ad9095000a0ba36cc40f53b0457be78669ce6b0be482",
+    "output_sha256": "53a2074f392ac0d2b688f62a1491df5d2fe152b34a3c8dcd97212bcc29e89aeb"
+  },
+  "outputs_byte_identical": true,
+  "stats_measured": {
+    "wall_ms": {
+      "n": 20,
+      "median": 5912.759,
+      "min": 4766.06,
+      "max": 6833.245,
+      "mean": 5886.00545,
+      "stdev": 557.615973108684,
+      "q1": 5563.0595,
+      "q3": 6265.11625
+    },
+    "import_ms": {
+      "n": 20,
+      "median": 87.628,
+      "min": 35.9687,
+      "max": 115.367,
+      "mean": 77.712245,
+      "stdev": 23.915949592104408,
+      "q1": 60.70325,
+      "q3": 93.93024999999999
+    },
+    "inference_ms": {
+      "n": 20,
+      "median": 5747.635,
+      "min": 4617.2,
+      "max": 6765.15,
+      "mean": 5755.8175,
+      "stdev": 567.5983086365791,
+      "q1": 5464.8099999999995,
+      "q3": 6139.304999999999
+    },
+    "overhead_ms": {
+      "n": 20,
+      "median": 52.7475,
+      "min": 32.126,
+      "max": 74.765,
+      "mean": 52.4756,
+      "stdev": 10.995687821763777,
+      "q1": 45.71725,
+      "q3": 57.53075
+    }
+  },
+  "drift_check": {
+    "first_half_median_inference_ms": 5747.635,
+    "second_half_median_inference_ms": 5702.3099999999995
+  },
+  "runs": [
+    {
+      "index": 0,
+      "phase": "warmup",
+      "wall_ms": 5809.038,
+      "import_ms": 80.7824,
+      "inference_ms": 5631.48,
+      "overhead_ms": 96.775
+    },
+    {
+      "index": 1,
+      "phase": "warmup",
+      "wall_ms": 6346.133,
+      "import_ms": 100.361,
+      "inference_ms": 6189.26,
+      "overhead_ms": 56.512
+    },
+    {
+      "index": 2,
+      "phase": "warmup",
+      "wall_ms": 6671.413,
+      "import_ms": 98.2767,
+      "inference_ms": 6512.58,
+      "overhead_ms": 60.557
+    },
+    {
+      "index": 3,
+      "phase": "measured",
+      "wall_ms": 5915.256,
+      "import_ms": 103.131,
+      "inference_ms": 5738.91,
+      "overhead_ms": 73.215
+    },
+    {
+      "index": 4,
+      "phase": "measured",
+      "wall_ms": 6402.19,
+      "import_ms": 37.9388,
+      "inference_ms": 6318.87,
+      "overhead_ms": 45.382
+    },
+    {
+      "index": 5,
+      "phase": "measured",
+      "wall_ms": 5946.492,
+      "import_ms": 115.367,
+      "inference_ms": 5756.36,
+      "overhead_ms": 74.765
+    },
+    {
+      "index": 6,
+      "phase": "measured",
+      "wall_ms": 5667.33,
+      "import_ms": 102.51,
+      "inference_ms": 5513.99,
+      "overhead_ms": 50.83
+    },
+    {
+      "index": 7,
+      "phase": "measured",
+      "wall_ms": 6833.245,
+      "import_ms": 35.9687,
+      "inference_ms": 6765.15,
+      "overhead_ms": 32.126
+    },
+    {
+      "index": 8,
+      "phase": "measured",
+      "wall_ms": 6645.717,
+      "import_ms": 92.1391,
+      "inference_ms": 6495.91,
+      "overhead_ms": 57.668
+    },
+    {
+      "index": 9,
+      "phase": "measured",
+      "wall_ms": 6656.092,
+      "import_ms": 94.6873,
+      "inference_ms": 6503.92,
+      "overhead_ms": 57.485
+    },
+    {
+      "index": 10,
+      "phase": "measured",
+      "wall_ms": 4766.06,
+      "import_ms": 93.6779,
+      "inference_ms": 4617.2,
+      "overhead_ms": 55.182
+    },
+    {
+      "index": 11,
+      "phase": "measured",
+      "wall_ms": 5148.799,
+      "import_ms": 98.9714,
+      "inference_ms": 4992.97,
+      "overhead_ms": 56.858
+    },
+    {
+      "index": 12,
+      "phase": "measured",
+      "wall_ms": 5135.992,
+      "import_ms": 86.8535,
+      "inference_ms": 4995.99,
+      "overhead_ms": 53.148
+    },
+    {
+      "index": 13,
+      "phase": "measured",
+      "wall_ms": 5706.975,
+      "import_ms": 88.4025,
+      "inference_ms": 5556.96,
+      "overhead_ms": 61.612
+    },
+    {
+      "index": 14,
+      "phase": "measured",
+      "wall_ms": 5910.262,
+      "import_ms": 40.6551,
+      "inference_ms": 5817.26,
+      "overhead_ms": 52.347
+    },
+    {
+      "index": 15,
+      "phase": "measured",
+      "wall_ms": 5745.254,
+      "import_ms": 89.6251,
+      "inference_ms": 5609.8,
+      "overhead_ms": 45.829
+    },
+    {
+      "index": 16,
+      "phase": "measured",
+      "wall_ms": 5571.336,
+      "import_ms": 62.5919,
+      "inference_ms": 5476.13,
+      "overhead_ms": 32.614
+    },
+    {
+      "index": 17,
+      "phase": "measured",
+      "wall_ms": 6502.018,
+      "import_ms": 51.461,
+      "inference_ms": 6400.46,
+      "overhead_ms": 50.097
+    },
+    {
+      "index": 18,
+      "phase": "measured",
+      "wall_ms": 5315.467,
+      "import_ms": 62.2451,
+      "inference_ms": 5201.79,
+      "overhead_ms": 51.431
+    },
+    {
+      "index": 19,
+      "phase": "measured",
+      "wall_ms": 6149.133,
+      "import_ms": 56.0777,
+      "inference_ms": 6049.56,
+      "overhead_ms": 43.495
+    },
+    {
+      "index": 20,
+      "phase": "measured",
+      "wall_ms": 5944.836,
+      "import_ms": 88.8382,
+      "inference_ms": 5794.82,
+      "overhead_ms": 61.177
+    },
+    {
+      "index": 21,
+      "phase": "measured",
+      "wall_ms": 5538.23,
+      "import_ms": 66.6408,
+      "inference_ms": 5430.85,
+      "overhead_ms": 40.739
+    },
+    {
+      "index": 22,
+      "phase": "measured",
+      "wall_ms": 6219.425,
+      "import_ms": 86.4628,
+      "inference_ms": 6079.45,
+      "overhead_ms": 53.512
+    }
+  ]
+}
