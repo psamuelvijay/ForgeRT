@@ -1,5 +1,10 @@
 # .fgx v1 Format — Draft for Review
 
+> **Status: SUPERSEDED.** The authoritative specification is [`docs/FGX_FORMAT.md`](../../../docs/FGX_FORMAT.md) (.fgx v1.0). This draft is kept unchanged below as a record of the design before review; do not implement from it.
+> Review findings and how they were resolved: [`fgx-review.md`](fgx-review.md). Clarified or added after review: section tags as four ASCII bytes, rank 0 rejected, a 1 GiB file cap, the empty-string rule, name-uniqueness and graph well-formedness checks, a defined check order, and a canonical manifest for the Python/C++ comparison.
+
+---
+
 Purpose: carry a static ONNX graph (SqueezeNet 1.1 scope) from a build-time Python
 converter (`onnx` package) to a dependency-free C++ reader.
 
