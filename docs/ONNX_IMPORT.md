@@ -86,9 +86,11 @@ control (`--atol 1e-7`) fails as expected.
 - Only the CPU path was validated. The CUDA path was not run on the imported model.
 - Only SqueezeNet 1.1 opset 7 was tested. Other models, opsets, and batch sizes
   other than 1 are untested.
-- Timing: `forgert_run` took about 1.3 s per inference (single-threaded naive
-  convolution; wall time includes process start). ONNX Runtime timing was not
-  measured and no speed comparison is claimed.
+- Timing is not a reliable baseline. An earlier, uncontrolled observation was about 1.3 s per
+  inference (machine state not recorded); a later measured run on battery under load gave a 5.75 s
+  median. Both are single-threaded naive convolution and depend heavily on machine state; neither is
+  representative. See [`SQUEEZENET_CPU_LATENCY.md`](SQUEEZENET_CPU_LATENCY.md). ONNX Runtime timing
+  was not measured and no speed comparison is claimed.
 
 ## Tests
 

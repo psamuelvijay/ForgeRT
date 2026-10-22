@@ -230,8 +230,12 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
   models, other models, batch size above 1.
 - **Weights are graph inputs** - `Graph` has no constant nodes yet, so the scheduler
   would count weight transfers on every run if an imported model were placed on GPU.
-- **Slow CPU inference** - about 1.3 s per SqueezeNet inference (naive single-threaded
-  convolution). No speed comparison with ONNX Runtime has been measured.
+- **CPU inference latency is not a reliable baseline.** An earlier, uncontrolled observation was
+  about 1.3 s per SqueezeNet inference (machine state not recorded). A later measured run on battery
+  under background load gave a 5.75 s median. Neither is representative; latency depends heavily on
+  machine state, and the convolution is a naive single-threaded loop. See
+  [`docs/SQUEEZENET_CPU_LATENCY.md`](docs/SQUEEZENET_CPU_LATENCY.md). No speed comparison with ONNX
+  Runtime has been measured.
 - **CPU-bound Conv2D** — the naive direct implementation is correct but slow;
   CUDA im2col+GEMM is implemented but not yet tested at full SqueezeNet scale.
 - **No batching beyond N=1** — the graph engine supports N>1 but demos use N=1.
