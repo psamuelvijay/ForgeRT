@@ -3,91 +3,91 @@
 # Tensor tests
 add_executable(test_tensor test_tensor.cpp)
 target_include_directories(test_tensor PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_tensor PRIVATE forgert)
+target_link_libraries(test_tensor PRIVATE forgert forgert_cpu_stub)
 
 # Operator tests
 add_executable(test_operator test_operator.cpp)
 target_include_directories(test_operator PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_operator PRIVATE forgert)
+target_link_libraries(test_operator PRIVATE forgert forgert_cpu_stub)
 
 # ReLU operator tests
 add_executable(test_relu test_relu.cpp)
 target_include_directories(test_relu PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_relu PRIVATE forgert)
+target_link_libraries(test_relu PRIVATE forgert forgert_cpu_stub)
 
 # MatMul operator tests
 add_executable(test_matmul test_matmul.cpp)
 target_include_directories(test_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_matmul PRIVATE forgert)
+target_link_libraries(test_matmul PRIVATE forgert forgert_cpu_stub)
 
 # Softmax operator tests
 add_executable(test_softmax test_softmax.cpp)
 target_include_directories(test_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_softmax PRIVATE forgert)
+target_link_libraries(test_softmax PRIVATE forgert forgert_cpu_stub)
 
 # LayerNorm operator tests
 add_executable(test_layernorm test_layernorm.cpp)
 target_include_directories(test_layernorm PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_layernorm PRIVATE forgert)
+target_link_libraries(test_layernorm PRIVATE forgert forgert_cpu_stub)
 
 
 # AveragePool2D CPU tests (Phase 8)
 add_executable(test_averagepool2d test_averagepool2d.cpp)
 target_include_directories(test_averagepool2d PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_averagepool2d PRIVATE forgert)
+target_link_libraries(test_averagepool2d PRIVATE forgert forgert_cpu_stub)
 
 # Dropout CPU tests (Phase 8)
 add_executable(test_dropout test_dropout.cpp)
 target_include_directories(test_dropout PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_dropout PRIVATE forgert)
+target_link_libraries(test_dropout PRIVATE forgert forgert_cpu_stub)
 
 # Reshape CPU tests (Phase 8)
 add_executable(test_reshape test_reshape.cpp)
 target_include_directories(test_reshape PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_reshape PRIVATE forgert)
+target_link_libraries(test_reshape PRIVATE forgert forgert_cpu_stub)
 # Conv2D CPU tests (Phase 8)
 add_executable(test_conv2d test_conv2d.cpp)
 target_include_directories(test_conv2d PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_conv2d PRIVATE forgert)
+target_link_libraries(test_conv2d PRIVATE forgert forgert_cpu_stub)
 # Concat CPU tests (Phase 8)
 add_executable(test_concat test_concat.cpp)
 target_include_directories(test_concat PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_concat PRIVATE forgert)
+target_link_libraries(test_concat PRIVATE forgert forgert_cpu_stub)
 
 # MaxPool2D CPU tests (Phase 8)
 add_executable(test_maxpool2d test_maxpool2d.cpp)
 target_include_directories(test_maxpool2d PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_maxpool2d PRIVATE forgert)
+target_link_libraries(test_maxpool2d PRIVATE forgert forgert_cpu_stub)
 
 # Graph tests
 add_executable(test_graph test_graph.cpp)
 target_include_directories(test_graph PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_graph PRIVATE forgert)
+target_link_libraries(test_graph PRIVATE forgert forgert_cpu_stub)
 
 # Graph integration tests (MatMul)
 add_executable(test_graph_matmul test_graph_matmul.cpp)
 target_include_directories(test_graph_matmul PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_graph_matmul PRIVATE forgert)
+target_link_libraries(test_graph_matmul PRIVATE forgert forgert_cpu_stub)
 
 # Graph integration tests (Softmax)
 add_executable(test_graph_softmax test_graph_softmax.cpp)
 target_include_directories(test_graph_softmax PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_graph_softmax PRIVATE forgert)
+target_link_libraries(test_graph_softmax PRIVATE forgert forgert_cpu_stub)
 
 # Memory stats tests (Phase 4)
 add_executable(test_memory_stats test_memory_stats.cpp)
 target_include_directories(test_memory_stats PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_memory_stats PRIVATE forgert)
+target_link_libraries(test_memory_stats PRIVATE forgert forgert_cpu_stub)
 
 # Graph optimizer tests (Phase 5)
 add_executable(test_graph_optimizer test_graph_optimizer.cpp)
 target_include_directories(test_graph_optimizer PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_graph_optimizer PRIVATE forgert)
+target_link_libraries(test_graph_optimizer PRIVATE forgert forgert_cpu_stub)
 
 # Resource-aware scheduler tests (Phase 6)
 add_executable(test_scheduler test_scheduler.cpp)
 target_include_directories(test_scheduler PRIVATE ${FORGERT_INCLUDE_DIR})
-target_link_libraries(test_scheduler PRIVATE forgert)
+target_link_libraries(test_scheduler PRIVATE forgert forgert_cpu_stub)
 
 # .fgx reader tests (Phase 9) -- valid parse + malformed-file suite, CPU-only
 add_executable(test_fgx_reader test_fgx_reader.cpp)
@@ -165,19 +165,22 @@ target_link_libraries(test_conv2d_cuda PRIVATE forgert forgert_cuda)
 set_target_properties(test_conv2d_cuda PROPERTIES ${CUDA_TEST_PROPS})
 
 # Scheduled (mixed CPU/CUDA) execution of the imported SqueezeNet graph.
-# Compiles the importer sources FRESH with FORGERT_CUDA_AVAILABLE (inherited from
-# forgert_cuda) so every TU agrees on operator definitions -- no ODR conflict.
-# Deliberately does NOT link the CPU-only forgert_import archive, preserving the
-# forgert_import / forgert_cuda separation documented in src/CMakeLists.txt.
+# ScheduledGraph now comes straight from the `forgert` core library: its CUDA
+# transfers resolve at link time to the real Tensor::cudaTransferImpl in
+# forgert_cuda (see src/tensor/tensor_cuda_stub.cpp + cuda/tensor_cuda_impl.cu).
+# scheduler.cpp no longer needs recompiling here -- this target demonstrates the
+# supported, reusable mixed CPU/CUDA library path.
+#
+# The importer sources are still compiled FRESH into this target (with
+# FORGERT_CUDA_AVAILABLE inherited from forgert_cuda) rather than linking the
+# CPU-only forgert_import archive, because the operator headers compile
+# differently with/without the macro -- linking forgert_import here would reopen
+# the ODR issue documented in src/CMakeLists.txt. (forgert_import also pulls
+# forgert_cpu_stub, which must never share a binary with forgert_cuda.)
 add_executable(test_scheduled_cuda
     test_scheduled_cuda.cu
     ${CMAKE_SOURCE_DIR}/src/import/importer.cpp
     ${CMAKE_SOURCE_DIR}/src/import/fgx_reader.cpp
-    # scheduler.cpp is recompiled here WITH FORGERT_CUDA_AVAILABLE so that its
-    # internal Tensor::copyTo calls resolve to the CUDA-capable inline (the copy
-    # in the CPU-only forgert core library throws on any CUDA transfer). The
-    # static-lib member for ScheduledGraph is then not pulled from forgert.
-    ${CMAKE_SOURCE_DIR}/src/scheduler/scheduler.cpp
 )
 target_include_directories(test_scheduled_cuda PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_scheduled_cuda PRIVATE forgert forgert_cuda)

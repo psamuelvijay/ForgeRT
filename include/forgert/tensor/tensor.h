@@ -243,28 +243,21 @@ public:
             return;
         }
 
-#ifdef FORGERT_CUDA_AVAILABLE
-        CudaMemcpyKind kind;
-        if (device_ == Device::CPU  && dst.device_ == Device::CUDA)
-            kind = CudaMemcpyKind::HostToDevice;
-        else if (device_ == Device::CUDA && dst.device_ == Device::CPU)
-            kind = CudaMemcpyKind::DeviceToHost;
-        else
-            kind = CudaMemcpyKind::DeviceToDevice;
+        // At least one side is CUDA. The actual device memcpy is dispatched
+        // out-of-line (cudaTransferImpl) so this inline body does NOT depend on
+        // FORGERT_CUDA_AVAILABLE. That keeps copyTo byte-identical across every
+        // translation unit, which is what lets ScheduledGraph -- compiled into
+        // the CPU-only `forgert` core library -- perform real H2D/D2H transfers
+        // whenever `forgert_cuda` is linked, with no per-TU ODR divergence.
+        //
+        // Two definitions of cudaTransferImpl exist and are selected at LINK
+        // time: a real one in forgert_cuda (calls forgert_cuda_memcpy) and a
+        // throwing fallback in forgert_cpu_stub. src/tensor/tensor_cuda_stub.cpp
+        // documents the contract.
+        cudaTransferImpl(dst.data_, data_, nb, device_, dst.device_);
 
-        const int err = forgert_cuda_memcpy(dst.data_, data_, nb, kind);
-        if (err != 0) {
-            throw std::runtime_error(
-                "Tensor::copyTo: cudaMemcpy failed (cudaError_t=" +
-                std::to_string(err) + ")");
-        }
-        
-        // Track transfer (Phase 4)
+        // Track transfer (Phase 4). Only reached on success (impl throws on error).
         recordTransfer(device_, dst.device_, nb);
-#else
-        throw std::runtime_error(
-            "Tensor::copyTo: CUDA transfers require FORGERT_CUDA_AVAILABLE");
-#endif
     }
 
 private:
@@ -298,6 +291,17 @@ private:
     void recordAllocation(size_t bytes) const;
     void recordDeallocation(Device device, size_t bytes) const;
     void recordTransfer(Device src, Device dst, size_t bytes) const;
+
+    // Out-of-line device<->host (or device<->device) memcpy for copyTo().
+    // Declared here (not macro-gated) so the inline copyTo body is identical in
+    // every TU. Defined twice and chosen at link time:
+    //   - forgert_cuda: real implementation (forgert_cuda_memcpy); used whenever
+    //     forgert_cuda is linked.
+    //   - forgert core (CPU-only): throwing fallback for builds without CUDA.
+    // Throws std::runtime_error on a failed/unavailable transfer; returns
+    // normally on success. `src_dev`/`dst_dev` carry the Tensor device tags.
+    static void cudaTransferImpl(void* dst, const void* src, size_t nbytes,
+                                 Device src_dev, Device dst_dev);
 };
 
 } // namespace forgert

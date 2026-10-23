@@ -7,6 +7,7 @@ add_executable(mnist_inference
 
 target_link_libraries(mnist_inference PRIVATE
     forgert
+    forgert_cpu_stub
 )
 
 target_include_directories(mnist_inference PRIVATE

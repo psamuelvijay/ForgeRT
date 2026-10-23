@@ -8,6 +8,10 @@ set(FORGERT_CUDA_SOURCES
     kernels/add_kernel.cu
     kernels/conv2d_kernel.cu
     kernels/cuda_memory.cu
+
+    # Real (CUDA-backed) definition of Tensor::cudaTransferImpl. Selected at
+    # link time over the CPU fallback in forgert whenever forgert_cuda is linked.
+    tensor_cuda_impl.cu
 )
 
 add_library(forgert_cuda STATIC ${FORGERT_CUDA_SOURCES})
