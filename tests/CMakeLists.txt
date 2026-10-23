@@ -88,6 +88,12 @@ target_link_libraries(test_graph_optimizer PRIVATE forgert forgert_cpu_stub)
 add_executable(test_scheduler test_scheduler.cpp)
 target_include_directories(test_scheduler PRIVATE ${FORGERT_INCLUDE_DIR})
 target_link_libraries(test_scheduler PRIVATE forgert forgert_cpu_stub)
+# Profile / calibration validation tests (measured-profiling phase).
+# CPU-only correctness checks on profile validity, unit consistency, fallback,
+# and deterministic decisions. Does NOT run benchmarks or parse JSON.
+add_executable(test_profile_calibration test_profile_calibration.cpp)
+target_include_directories(test_profile_calibration PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(test_profile_calibration PRIVATE forgert forgert_cpu_stub)
 
 # .fgx reader tests (Phase 9) -- valid parse + malformed-file suite, CPU-only
 add_executable(test_fgx_reader test_fgx_reader.cpp)
@@ -208,6 +214,7 @@ add_test(NAME GraphOptimizerTest  COMMAND test_graph_optimizer)
 add_test(NAME FgxReaderTest       COMMAND test_fgx_reader)
 add_test(NAME ImporterTest        COMMAND test_importer)
 add_test(NAME SchedulerTest       COMMAND test_scheduler)
+add_test(NAME ProfileCalibrationTest COMMAND test_profile_calibration)
 add_test(NAME ReLUCUDATest        COMMAND test_relu_cuda)
 add_test(NAME MatMulCUDATest      COMMAND test_matmul_cuda)
 add_test(NAME SoftmaxCUDATest     COMMAND test_softmax_cuda)
