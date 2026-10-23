@@ -1,0 +1,15 @@
+# ForgeRT optional Python toolchain (converter + end-to-end tests).
+#
+# Used only by the Python-based CTest cases and the tools/ scripts:
+#   - tools/onnx_to_fgx.py            : numpy, onnx
+#   - tests/test_onnx_to_fgx.py       : numpy, onnx
+#   - tests/fgx_cross_check.py        : numpy, onnx
+#   - tools/validate_squeezenet.py    : numpy, onnx, onnxruntime (CPU provider)
+#
+# These run on CPU only; no GPU or CUDA Python packages are required.
+# Pinned for reproducibility on Ubuntu 22.04 / Python 3.10 (manylinux wheels).
+# Adjust versions if your interpreter differs; the tests exit 77 (Skipped),
+# never fail, when a package is absent.
+numpy==1.26.4
+onnx==1.16.2
+onnxruntime==1.18.1

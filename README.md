@@ -145,6 +145,79 @@ The Python tools need `pip install onnx onnxruntime numpy`. Format:
 
 ---
 
+## Build with Docker
+
+The repository ships a `Dockerfile` (base `nvidia/cuda:12.6.0-devel-ubuntu22.04`)
+that builds the whole project and runs a CPU-safe test gate. The CUDA 12.6 toolkit
+is required to compile because the build targets compute capability **sm_61**
+(GTX 1050-class Pascal); CUDA 12.x is the correct generation for sm_61.
+
+**What the default image does**
+
+- Compiles everything (CPU and CUDA objects both build).
+- Runs the **CPU-safe** CTest subset at build time as a correctness gate.
+
+**What it does not do**
+
+- It does **not** run CUDA tests at build time. They need a real GPU at runtime,
+  and `docker build` normally has none, so they are excluded from the gate.
+- It does **not** install Python by default, so the converter / end-to-end tests
+  are not registered (enable with `--build-arg WITH_PYTHON=1`).
+
+### Build the image (CPU gate)
+
+```bash
+docker build -t forgert .
+```
+
+This runs the CPU-safe tests during the build. The gate excludes GPU tests by
+name regex (`ctest -E "CUDA|LayerNormStressTest"`): every GPU test name
+contains `CUDA` except `LayerNormStressTest`. Label filtering alone is not
+used because only two tests carry CTest labels, so `-LE` would not exclude the
+unlabeled CUDA tests. Failures still propagate: a real test failure fails the build.
+
+### Run the CPU-safe suite in a container
+
+```bash
+docker run --rm forgert bash -lc 'cd build && ctest --output-on-failure -E "CUDA|LayerNormStressTest"'
+```
+
+### Run CUDA tests with GPU passthrough
+
+Host prerequisites: an NVIDIA GPU + driver, and the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+so Docker can expose the GPU. Then run only the GPU tests:
+
+```bash
+docker run --rm --gpus all forgert bash -lc 'cd build && ctest --output-on-failure -R "CUDA|LayerNormStressTest"'
+```
+
+`ScheduledCUDATest` additionally needs a prebuilt `squeezenet1.1-7.fgx` in the
+build tree; without it, that single test reports *Skipped* (exit 77).
+
+### Optional: Python converter / end-to-end tests (CPU-only)
+
+These are off by default. Enable them at build time; they add `numpy`, `onnx`,
+and `onnxruntime` (pinned in `requirements.txt`) and run on CPU -- no GPU needed:
+
+```bash
+docker build --build-arg WITH_PYTHON=1 -t forgert:py .
+# then run just the Python-based CPU tests:
+docker run --rm forgert:py bash -lc 'cd build && ctest --output-on-failure -R "Converter|FgxCrossLanguage|E2E"'
+```
+
+When Python or a dependency is missing, these tests exit 77 and CTest reports
+them as *Skipped* -- never as passed.
+
+### Limitations
+
+- The image is a build-and-test environment, not a slim runtime image; image-size
+  optimization is intentionally out of scope.
+- GPU execution requires the NVIDIA Container Toolkit on the host; CPU build and
+  the CPU test gate work without any GPU.
+
+---
+
 ## Test Results
 
 All 33 tests passed on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped):
