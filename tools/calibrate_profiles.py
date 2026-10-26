@@ -61,7 +61,13 @@ def derive(raw, authoritative):
         speedup = None
         if cpu_npe and gpu_kernel_npe and gpu_kernel_npe > 0:
             speedup = cpu_npe / gpu_kernel_npe
+        # Per-size points kept so scaling can be audited / validated downstream.
+        sizes = sorted(
+            ({"elems": e["elems"], "cpu_median_ms": e["cpu"]["median_ms"],
+              "gpu_kernel_median_ms": e["gpu_kernel"]["median_ms"]} for e in entries),
+            key=lambda s: s["elems"])
         op_profiles[op] = {
+            "sizes": sizes,
             "cpu_ns_per_elem": cpu_npe,
             "gpu_kernel_ns_per_elem": gpu_kernel_npe,
             "gpu_speedup": speedup,
@@ -116,6 +122,15 @@ CPU_NS_PER_ELEM_FLOOR = 0.01
 CPU_NS_PER_ELEM_CEIL = 1.0e6
 # Transfer bandwidth sanity: PCIe-class links are ~1..100 bytes/ns effective.
 BW_FLOOR, BW_CEIL = 0.1, 1000.0
+# Size-scaling check. A real elementwise/compute op does MORE work for MORE
+# elements. If the largest case is >= SCALE_MIN_RATIO x bigger than the smallest
+# yet its time grew by less than SCALE_MIN_FRACTION of that ratio, the benchmark
+# did not run the size it claims (e.g. tensors reused across sizes by a
+# function-local `static`, which is the bug this guards against). Deliberately
+# generous: fixed per-call overhead legitimately flattens tiny sizes, so this only
+# fires when growth is a small fraction of linear.
+SCALE_MIN_RATIO = 16.0
+SCALE_MIN_FRACTION = 0.05
 
 
 def check_units(derived):
@@ -147,6 +162,25 @@ def check_units(derived):
         elif cpu > CPU_NS_PER_ELEM_CEIL:
             problems.append(f"{op}: cpu_ns_per_elem {cpu:.4g} > ceil "
                             f"{CPU_NS_PER_ELEM_CEIL} -- suspect units")
+        all_sizes = p.get("sizes") or []
+        launch_ms = (g["cuda_launch_overhead_ns"] or 0) / 1e6
+        for field, label in (("cpu_median_ms", "CPU"),
+                             ("gpu_kernel_median_ms", "GPU kernel")):
+            sizes = all_sizes
+            if field == "gpu_kernel_median_ms":
+                # Small kernels are dominated by the fixed launch cost and do not
+                # scale with size; only compare sizes whose time clearly exceeds it.
+                sizes = [s for s in all_sizes if s[field] >= 2.0 * launch_ms]
+            if len(sizes) >= 2:
+                lo, hi = sizes[0], sizes[-1]
+                ratio = hi["elems"] / lo["elems"] if lo["elems"] else 0
+                if ratio >= SCALE_MIN_RATIO:
+                    if lo[field] > 0 and hi[field] / lo[field] < SCALE_MIN_FRACTION * ratio:
+                        problems.append(
+                            f"{op}: {label} time grew only {hi[field] / lo[field]:.2f}x "
+                            f"for a {ratio:.0f}x larger input (< {SCALE_MIN_FRACTION:.0%} of "
+                            f"linear) -- the benchmark did not run the claimed size "
+                            f"(do NOT calibrate from this)")
         if p["gpu_speedup"] is not None and p["gpu_speedup"] <= 0:
             problems.append(f"{op}: gpu_speedup <= 0")
     return problems

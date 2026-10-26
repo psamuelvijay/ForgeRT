@@ -115,11 +115,69 @@ Fix the host (AC power, no background load, allow thermal steady-state), then
 repeat steps 1–2. Compare derived values across at least two independent runs;
 promote only values that agree within a few percent. Record the host and date.
 
+## Measurement validity checks (what the calibrator refuses)
+
+`calibrate_profiles.py` exits **2** (derivation written for inspection, but NOT to
+be used) when any of these hold. They exist because each one was a real defect:
+
+| Check | Catches |
+|---|---|
+| CPU `ns/elem` below 0.01 | CPU work that was optimized away or never ran |
+| Time grows < 5% of linear across a >=16x size range (CPU, and GPU kernels above ~2x launch cost) | A benchmark that did **not** run the size it reports |
+| Bandwidth outside 0.1..1000 bytes/ns, missing/non-positive values | Mis-scaled units, failed transfers |
+
+`tests/test_calibrate_profiles.py` (`CalibratorFailureModesTest`, standard-library
+Python only) pins each failure mode and the no-false-rejection case.
+
+### Postmortem: the "0.0006 ns/element" ReLU
+
+The first provisional run reported ~0.0006 ns/elem for CPU ReLU, flat across
+1K..1M elements. It was first attributed to compiler dead-code elimination and the
+harness was hardened with a full-output `consume()` and an input `perturb()`. That
+did not change the numbers, because **the diagnosis was wrong**: the per-size setup
+lambdas declared their tensors `static`, which initialises once, so every larger
+"size" silently re-measured the first (1,024-element) tensors while reporting the
+larger element count. The harness now owns tensors per case, and the same
+operators scale sensibly (see below). `consume()`/`perturb()` are kept as cheap,
+standard hygiene but are not what fixed the numbers; note the consume pass adds one
+linear read of the output to CPU timings, so memory-bound CPU figures are slightly
+conservative (they over-count rather than under-count).
+
+The harness also uses **cost-adaptive iteration counts** (one probe call sizes the
+inner loop to ~20 ms per sample, capped at the configured maximum; heavy ops such
+as a 512x512 CPU matmul run with `inner_iters = 1`). The actual `inner_iters` and
+`warmup` per measurement are recorded in the raw JSON.
+
 ## Current status
 
-The default profiles in `scheduler.cpp` remain the original GTX 1050 / i5-9300H
-estimates. No measured values have been promoted via this pipeline: the only
-runs so far were on a non-quiescent machine and are **provisional** (and
-visibly distorted — e.g. a loop-hoisted CPU ReLU producing an implausible
-sub-picosecond-per-element time). Authoritative promotion awaits a controlled
-host.
+The compiled-in defaults in `scheduler.cpp` are still the original GTX 1050 /
+i5-9300H **estimates**. Nothing measured has been promoted.
+
+One corrected, validated provisional run on the development laptop (AC power; the host was not verified idle or thermally stable, and a browser was
+observed consuming CPU earlier in the session) gave,
+for reference only:
+
+| Op | Shape | CPU ns/elem | GPU kernel ns/elem | kernel-only speedup |
+|---|---|---|---|---|
+| ReLU | 1,048,576 | ~1.66 | ~0.136 | ~12x |
+| MatMul | 512x512 | ~885 | ~4.0 | ~220x |
+
+with ~5.7 bytes/ns H2D/D2H and ~9.0 us null-kernel launch overhead (vs the
+hard-coded 20 us). These are **single-run, loaded-host figures**: spread across
+samples was 4-7%, but they have not been reproduced across independent runs on an
+idle machine, so they are **provisional** and are not promoted. They do suggest the
+estimated launch overhead (20 us) and CPU ReLU cost (0.40 ns/elem) are worth
+re-examining on a controlled host.
+
+### Known limitation
+
+`CUDA_LAUNCH_OVERHEAD_NS` is a constant inside `SchedulingPolicy::decide()`, not a
+profile field, so promoting a measured launch overhead is a source edit. Making it
+a field of the profile/context is future work.
+
+### Before promoting to defaults
+
+1. Idle host, AC power, thermal steady state; close background apps.
+2. At least two independent runs agreeing within a few percent.
+3. Calibrator exit code 0 and `--authoritative` asserted by the operator.
+4. Review the snippet against physics, update the provenance comment, re-run CTest.

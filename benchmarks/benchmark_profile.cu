@@ -66,6 +66,8 @@ using namespace forgert;
 struct Stats {
     double median = 0.0, min = 0.0, max = 0.0, mean = 0.0, stddev = 0.0;
     int samples = 0;
+    int iters = 0;     // inner iterations actually used per sample (adaptive)
+    int warmup = 0;
 };
 
 static Stats summarize(std::vector<double> xs) {
@@ -87,7 +89,21 @@ static Stats summarize(std::vector<double> xs) {
 // --------------------------------------------------------------------- timing --
 // One "series" = average ms over `iters` back-to-back calls. We collect
 // `samples` series and summarize across them.
+// Cost-adaptive iteration count. A fixed count that suits a 1K-element ReLU
+// (microseconds) would run a 512x512 naive CPU matmul (hundreds of ms per call)
+// for minutes. One probe call sets iters so a single sample targets ~kSampleMs,
+// capped at the requested maximum; heavy ops get 1 warm-up and iters=1.
+static const double kSampleMs = 20.0;
 static Stats timeCPU(const std::function<void()>& fn, int warmup, int iters, int samples) {
+    auto p0 = std::chrono::high_resolution_clock::now();
+    fn();                                            // probe (also a warm-up call)
+    auto p1 = std::chrono::high_resolution_clock::now();
+    const double probe_ms = std::chrono::duration<double, std::milli>(p1 - p0).count();
+    if (probe_ms > 0.0) {
+        const int fit = static_cast<int>(kSampleMs / probe_ms);
+        iters = std::max(1, std::min(iters, fit));
+    }
+    if (probe_ms > 50.0) warmup = 1;
     for (int i = 0; i < warmup; ++i) fn();
     std::vector<double> series;
     series.reserve(samples);
@@ -97,7 +113,7 @@ static Stats timeCPU(const std::function<void()>& fn, int warmup, int iters, int
         auto t1 = std::chrono::high_resolution_clock::now();
         series.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count() / iters);
     }
-    return summarize(series);
+    Stats st = summarize(series); st.iters = iters; st.warmup = warmup; return st;
 }
 
 static Stats timeGPU(const std::function<void()>& fn, int warmup, int iters, int samples) {
@@ -119,7 +135,7 @@ static Stats timeGPU(const std::function<void()>& fn, int warmup, int iters, int
     }
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
-    return summarize(series);
+    Stats st = summarize(series); st.iters = iters; st.warmup = warmup; return st;
 }
 
 // null kernel for launch overhead
@@ -182,6 +198,8 @@ static void emitStats(Json& j, const char* name, const Stats& st) {
     j.key("mean_ms");   j.raw(std::to_string(st.mean));
     j.key("stddev_ms"); j.raw(std::to_string(st.stddev));
     j.key("samples");   j.raw(std::to_string(st.samples));
+    j.key("inner_iters"); j.raw(std::to_string(st.iters));
+    j.key("warmup");    j.raw(std::to_string(st.warmup));
     j.endObj();
 }
 
@@ -191,11 +209,12 @@ static const int ITERS   = 100;
 static const int SAMPLES = 15;
 
 // Each op measurement produces a JSON object with shape, elems, and the stats.
-template <typename SetupT>
+struct Fns {
+    std::function<void()> cpu, kernel, e2e;
+};
+
 static void benchOp(Json& j, bool& firstEntry, const char* op, const std::string& shape,
-                    size_t elems, size_t in_bytes, size_t out_bytes, SetupT&& setup) {
-    // setup returns three callables: cpu(), kernel(), e2e()
-    auto fns = setup();
+                    size_t elems, size_t in_bytes, size_t out_bytes, const Fns& fns) {
     Stats cpu    = timeCPU(fns.cpu,       WARMUP, ITERS, SAMPLES);
     Stats kernel = timeGPU(fns.kernel,    WARMUP, ITERS, SAMPLES);
     Stats e2e    = timeGPU(fns.e2e,       WARMUP, ITERS, SAMPLES);
@@ -214,9 +233,6 @@ static void benchOp(Json& j, bool& firstEntry, const char* op, const std::string
     j.endObj();
 }
 
-struct Fns {
-    std::function<void()> cpu, kernel, e2e;
-};
 
 int main(int argc, char** argv) {
     const char* out_path = (argc > 1) ? argv[1] : nullptr;
@@ -284,55 +300,54 @@ int main(int argc, char** argv) {
     j.endObj();
 
     // ---- per-operator latency ----
+    //
+    // Every (op, size) case OWNS its tensors for the duration of its measurement.
+    // An earlier version declared the tensors `static` inside a lambda; a
+    // function-local static is initialised exactly once, so every larger size
+    // silently re-measured the FIRST (smallest) tensors while reporting the larger
+    // element count. That produced flat, physically impossible ns/elem figures and
+    // was misdiagnosed as compiler elision. tests/test_profile_calibration.py
+    // pins the symptom (time must scale with size) so it cannot regress silently.
     j.key("operators"); j.raw("[");
     bool firstOp = true;
 
     // ReLU (unary elementwise)
     for (size_t n : {size_t(1024), size_t(65536), size_t(1048576)}) {
         TensorShape sh({n});
-        auto setup = [&]() -> Fns {
-            static Tensor h_in(sh, DataType::Float32, Device::CPU);
-            static Tensor h_out(sh, DataType::Float32, Device::CPU);
-            static Tensor d_in(sh, DataType::Float32, Device::CUDA);
-            static Tensor d_out(sh, DataType::Float32, Device::CUDA);
-            fillHost(h_in); h_in.copyTo(d_in);
-            static ReLUOp op;
-            Fns f;
-            f.cpu    = [&]() { perturb(h_in); op.execute(Backend::CPU,  {&h_in}, {&h_out}); consume(h_out); };
-            f.kernel = [&]() { op.execute(Backend::CUDA, {&d_in}, {&d_out}); };
-            f.e2e    = [&]() { h_in.copyTo(d_in); op.execute(Backend::CUDA, {&d_in}, {&d_out}); d_out.copyTo(h_out); consume(h_out); };
-            return f;
-        };
+        Tensor h_in(sh, DataType::Float32, Device::CPU);
+        Tensor h_out(sh, DataType::Float32, Device::CPU);
+        Tensor d_in(sh, DataType::Float32, Device::CUDA);
+        Tensor d_out(sh, DataType::Float32, Device::CUDA);
+        fillHost(h_in); h_in.copyTo(d_in);
+        ReLUOp op;
+        Fns f;
+        f.cpu    = [&]() { perturb(h_in); op.execute(Backend::CPU,  {&h_in}, {&h_out}); consume(h_out); };
+        f.kernel = [&]() { op.execute(Backend::CUDA, {&d_in}, {&d_out}); };
+        f.e2e    = [&]() { h_in.copyTo(d_in); op.execute(Backend::CUDA, {&d_in}, {&d_out}); d_out.copyTo(h_out); consume(h_out); };
         benchOp(j, firstOp, "ReLU", "[" + std::to_string(n) + "]", n,
-                n * sizeof(float), n * sizeof(float), setup);
+                n * sizeof(float), n * sizeof(float), f);
     }
 
     // MatMul (square, compute bound)
     for (size_t m : {size_t(256), size_t(512)}) {
-        size_t k = m, n = m;
-        TensorShape sa({m, k}), sb({k, n}), sc({m, n});
-        auto setup = [&]() -> Fns {
-            static TensorShape A = sa, B = sb, C = sc;
-            static Tensor h_a(A, DataType::Float32, Device::CPU);
-            static Tensor h_b(B, DataType::Float32, Device::CPU);
-            static Tensor h_c(C, DataType::Float32, Device::CPU);
-            static Tensor d_a(A, DataType::Float32, Device::CUDA);
-            static Tensor d_b(B, DataType::Float32, Device::CUDA);
-            static Tensor d_c(C, DataType::Float32, Device::CUDA);
-            fillHost(h_a); fillHost(h_b, 0.2f); h_a.copyTo(d_a); h_b.copyTo(d_b);
-            static MatMulOp op;
-            Fns f;
-            f.cpu    = [&]() { perturb(h_a); op.execute(Backend::CPU,  {&h_a, &h_b}, {&h_c}); consume(h_c); };
-            f.kernel = [&]() { op.execute(Backend::CUDA, {&d_a, &d_b}, {&d_c}); };
-            f.e2e    = [&]() { h_a.copyTo(d_a); h_b.copyTo(d_b); op.execute(Backend::CUDA, {&d_a, &d_b}, {&d_c}); d_c.copyTo(h_c); consume(h_c); };
-            return f;
-        };
+        const size_t k = m, n = m;
+        Tensor h_a(TensorShape({m, k}), DataType::Float32, Device::CPU);
+        Tensor h_b(TensorShape({k, n}), DataType::Float32, Device::CPU);
+        Tensor h_c(TensorShape({m, n}), DataType::Float32, Device::CPU);
+        Tensor d_a(TensorShape({m, k}), DataType::Float32, Device::CUDA);
+        Tensor d_b(TensorShape({k, n}), DataType::Float32, Device::CUDA);
+        Tensor d_c(TensorShape({m, n}), DataType::Float32, Device::CUDA);
+        fillHost(h_a); fillHost(h_b, 0.2f); h_a.copyTo(d_a); h_b.copyTo(d_b);
+        MatMulOp op;
+        Fns f;
+        f.cpu    = [&]() { perturb(h_a); op.execute(Backend::CPU,  {&h_a, &h_b}, {&h_c}); consume(h_c); };
+        f.kernel = [&]() { op.execute(Backend::CUDA, {&d_a, &d_b}, {&d_c}); };
+        f.e2e    = [&]() { h_a.copyTo(d_a); h_b.copyTo(d_b); op.execute(Backend::CUDA, {&d_a, &d_b}, {&d_c}); d_c.copyTo(h_c); consume(h_c); };
         std::string shp = "[" + std::to_string(m) + "," + std::to_string(k) + "]@[" +
                           std::to_string(k) + "," + std::to_string(n) + "]";
         benchOp(j, firstOp, "MatMul", shp, m * n,
-                (m * k + k * n) * sizeof(float), m * n * sizeof(float), setup);
+                (m * k + k * n) * sizeof(float), m * n * sizeof(float), f);
     }
-
     j.raw("]");
     j.endObj();
 

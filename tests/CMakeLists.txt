@@ -235,6 +235,10 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME OnnxToFgxConverterTest
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_onnx_to_fgx.py)
     set_tests_properties(OnnxToFgxConverterTest PROPERTIES SKIP_RETURN_CODE 77)
+    # Calibrator failure modes (size-reuse bug, elided CPU work, false rejection).
+    # Standard-library Python only -- no numpy/onnx needed.
+    add_test(NAME CalibratorFailureModesTest
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_calibrate_profiles.py)
     # Python converter manifest vs C++ fgx_dump of the written file
     add_test(NAME FgxCrossLanguageSyntheticTest
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/fgx_cross_check.py
