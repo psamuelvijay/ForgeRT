@@ -10,9 +10,9 @@ than blindly offloading everything to the GPU.
 
 > **Status: Phase 8 complete.**
 > 11 operators (6 with CUDA). An ONNX opset 7 subset can be converted and run on CPU.
-> SqueezeNet 1.1 matched ONNX Runtime 1.29.0 on 10 seeded random inputs (max abs
-> difference 5.7e-06, same argmax each time). CPU path only; real-image accuracy,
-> other models, and CUDA execution of imported models are not validated.
+> SqueezeNet 1.1 matched ONNX Runtime on 10 seeded random inputs (max abs
+> difference 5.7e-06, same argmax each time). CPU path validated against ONNX Runtime; mixed CPU/CUDA execution of the same imported graph is validated against the CPU result (max abs diff ~5e-06). Real-image accuracy,
+> and other models are not validated.
 > Details: [`docs/ONNX_IMPORT.md`](docs/ONNX_IMPORT.md).
 
 ---
@@ -218,9 +218,31 @@ them as *Skipped* -- never as passed.
 
 ---
 
+## See the GPU work (CUDA stress demo)
+
+`gpu_stress` repeatedly runs `MatMulOp` on `Backend::CUDA` (2048x2048 by default, ~48 MiB
+of VRAM) for a bounded time, so GPU utilisation is visible in Task Manager. It proves the
+GPU did the work rather than assuming it: the output buffer starts as NaN, kernel time is
+taken from CUDA events, and sampled results are checked against a double-precision CPU
+reference. It exits 0 only if the results match and the throughput is plausible.
+
+```batch
+cmake --build build --target gpu_stress
+build\benchmarks\gpu_stress.exe --seconds 15 --n 2048 --countdown 10
+```
+
+In Task Manager open **Performance -> GPU** (the NVIDIA GPU) and switch one of the graphs to
+**Compute_0** or **Cuda**; the default 3D graph stays flat for CUDA compute. On a GTX 1050
+this showed 100% utilisation and ~254 GFLOP/s (about 13% of the theoretical FP32 peak: the
+kernel is a simple 16x16 tiled matmul, not a tuned one). Caps: 60 s, N <= 4096.
+`nvidia-smi` may list no processes for it because Windows (WDDM) usually hides per-process
+GPU usage; use the utilisation counters instead.
+
+---
+
 ## Test Results
 
-All 33 tests passed on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped):
+All 36 tests passed natively on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped, ~25 s). In Docker (Ubuntu 22.04 / GCC, built from a clean checkout) the CPU gate passed 21/21 (default image) and 26/26 (`WITH_PYTHON=1`), and the 10 CUDA tests passed 10/10 with `--gpus all` on the same GTX 1050:
 
 ```
 CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Conv2D,
@@ -233,7 +255,7 @@ End-to-end      SqueezeNetE2E (10 inputs vs ONNX Runtime, ~15 s)
 CUDA            TensorCUDA, ReLUCUDA, MatMulCUDA, SoftmaxCUDA, LayerNormCUDA,
                 ReLUOpCUDA, AddCUDA, Conv2DCUDA, LayerNormStress (10k iters)
 
-100% tests passed, 0 tests failed out of 33
+100% tests passed, 0 tests failed out of 36
 ```
 
 The Python-based tests (converter, cross-language, end-to-end) exit with code 77 and
@@ -294,15 +316,22 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
 
 ## Limitations
 
-- **Windows only** — Linux build is untested.
+- **Platforms:** developed on Windows (MSVC 14.39 + CUDA 12.6). Linux is verified only through the Docker image (Ubuntu 22.04, GCC, CUDA 12.6 base, sm_61). macOS and other GPUs/architectures are untested; the CUDA target is fixed to `sm_61`.
 - **ONNX support is a narrow subset** - opset 7 only; Conv, Relu, Concat, MaxPool,
   AveragePool, Dropout, Reshape; static float32 shapes; no groups, dilation or
   asymmetric padding. Anything else is rejected with the node and op named.
 - **SqueezeNet validation scope** - 10 seeded random inputs on the CPU path against
-  ONNX Runtime. Not validated: real images or accuracy, CUDA execution of imported
-  models, other models, batch size above 1.
-- **Weights are graph inputs** - `Graph` has no constant nodes yet, so the scheduler
-  would count weight transfers on every run if an imported model were placed on GPU.
+  ONNX Runtime, plus mixed CPU/CUDA execution of the same graph compared with the CPU
+  result (`ScheduledCUDATest`: 26/26 Conv2D on CUDA, everything else on CPU). Not
+  validated: accuracy on real images beyond the 3-image check, other models, batch
+  size above 1, and any performance claim for the mixed path.
+- **Weights are graph inputs** - `Graph` has no constant nodes yet, so on the mixed
+  CPU/CUDA path every convolution re-uploads its weights on every run. The scheduler
+  places Conv2D on CUDA, but that transfer churn means no speed-up is claimed.
+- **Scheduler profiles are estimates.** `defaultProfiles()` still holds the original
+  estimates; the measurement pipeline in [`docs/PROFILING.md`](docs/PROFILING.md) has
+  produced only provisional, single-host runs and nothing has been promoted. The launch
+  overhead is a fixed constant (20 us) that early measurements put nearer 9 us.
 - **CPU inference latency is not a reliable baseline.** An earlier, uncontrolled observation was
   about 1.3 s per SqueezeNet inference (machine state not recorded). A later measured run on battery
   under background load gave a 5.75 s median. Neither is representative; latency depends heavily on
@@ -310,7 +339,7 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
   [`docs/SQUEEZENET_CPU_LATENCY.md`](docs/SQUEEZENET_CPU_LATENCY.md). No speed comparison with ONNX
   Runtime has been measured.
 - **CPU-bound Conv2D** — the naive direct implementation is correct but slow;
-  CUDA im2col+GEMM is implemented but not yet tested at full SqueezeNet scale.
+  CUDA im2col+GEMM runs all 26 SqueezeNet convolutions in `ScheduledCUDATest`.
 - **No batching beyond N=1** — the graph engine supports N>1 but demos use N=1.
 - **No FP16/INT8** — float32 only.
 

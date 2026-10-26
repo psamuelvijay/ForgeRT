@@ -42,6 +42,18 @@ set_target_properties(benchmark_profile PROPERTIES
 )
 message(STATUS "  - benchmark_profile")
 
+# Bounded GPU stress/verification workload (MatMulOp on Backend::CUDA).
+# Never registered as a CTest case: it is a live-observation tool.
+add_executable(gpu_stress gpu_stress.cu)
+target_include_directories(gpu_stress PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(gpu_stress PRIVATE forgert forgert_cuda)
+set_target_properties(gpu_stress PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
+)
+message(STATUS "  - gpu_stress")
+
 # Conv2D benchmark (Phase 8)
 add_executable(benchmark_conv2d benchmark_conv2d.cu)
 target_include_directories(benchmark_conv2d PRIVATE ${FORGERT_INCLUDE_DIR})
