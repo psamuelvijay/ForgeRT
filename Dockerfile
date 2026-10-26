@@ -16,7 +16,8 @@
 #     (see README "Build with Docker").
 #   - It does NOT install Python by default, so the Python converter /
 #     end-to-end tests are not registered. Enable them with
-#     `--build-arg WITH_PYTHON=1` (adds numpy/onnx/onnxruntime, CPU-only).
+#     `--build-arg WITH_PYTHON=1` (adds numpy/onnx/onnxruntime, CPU-only, and
+#     downloads the SHA-256-verified SqueezeNet ONNX model if it is not present).
 #
 # See README.md -> "Build with Docker" for full usage.
 
@@ -59,6 +60,13 @@ COPY benchmarks/ ./benchmarks/
 COPY apps/       ./apps/
 COPY tools/      ./tools/
 COPY models/     ./models/
+
+# The SqueezeNet ONNX model is NOT in the repository (*.onnx is git-ignored), so a
+# clean `git clone` has no model. With WITH_PYTHON=1 fetch it with the SHA-256
+# pinned helper (a no-op that only verifies if the file is already present), so
+# the converter / end-to-end / scheduled-CUDA tests are reproducible from a clean
+# checkout. Requires network access at build time; the default image skips this.
+RUN if [ "$WITH_PYTHON" = "1" ]; then python3 tools/fetch_squeezenet.py ; fi
 
 # Configure and build the whole project from a clean checkout.
 RUN cmake -S . -B build -G Ninja \
