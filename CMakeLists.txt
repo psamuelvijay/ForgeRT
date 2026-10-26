@@ -43,11 +43,14 @@ if(MSVC)
         )
     endif()
 else()
-    add_compile_options(-Wall -Wextra -Werror)
+    # Scope to CXX (nvcc rejects bare host flags). Warnings are not errors, matching
+    # the MSVC /W4 path; several tests use variables only inside assert(), which
+    # NDEBUG removes, so -Werror fails on GCC for reasons unrelated to correctness.
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-Wextra>)
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        add_compile_options(-O3)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-O3>)
     else()
-        add_compile_options(-g)
+        add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-g>)
     endif()
 endif()
 

@@ -8,12 +8,11 @@
 #include <stdexcept>
 #include <string>
 
-// When built as part of a CUDA-enabled target (FORGERT_CUDA_AVAILABLE defined),
-// pull in the plain-C memory wrappers so the constructor / destructor / helpers
-// can call cudaMalloc/cudaFree/cudaMemcpy without exposing cuda_runtime.h here.
-#ifdef FORGERT_CUDA_AVAILABLE
-#include "kernels/cuda_memory.h"
-#endif
+// NOTE: this header deliberately does NOT depend on FORGERT_CUDA_AVAILABLE or on
+// any CUDA header. All device memory operations (alloc, free, memset, memcpy) go
+// through out-of-line Tensor::cuda*Impl functions whose definition is selected at
+// link time (forgert_cuda = real, forgert_cpu_stub = throwing fallback). Every
+// inline Tensor body is therefore identical in every translation unit.
 
 namespace forgert {
 
@@ -67,18 +66,8 @@ public:
                 throw std::runtime_error("Tensor: CPU memory allocation failed");
             }
         } else {
-#ifdef FORGERT_CUDA_AVAILABLE
-            const int err = forgert_cuda_malloc(&data_, num_bytes);
-            if (err != 0) {
-                throw std::runtime_error(
-                    "Tensor: CUDA memory allocation failed (cudaError_t=" +
-                    std::to_string(err) + ")");
-            }
-#else
-            throw std::runtime_error(
-                "Tensor: CUDA device support requires FORGERT_CUDA_AVAILABLE "
-                "(link against forgert_cuda)");
-#endif
+            // Link-time dispatched (see cudaAllocImpl); throws if no CUDA backend.
+            cudaAllocImpl(&data_, num_bytes);
         }
         
         // Track allocation (Phase 4)
@@ -154,16 +143,7 @@ public:
         if (device_ == Device::CPU) {
             std::memset(data_, 0, numBytes());
         } else {
-#ifdef FORGERT_CUDA_AVAILABLE
-            const int err = forgert_cuda_memset(data_, 0, numBytes());
-            if (err != 0) {
-                throw std::runtime_error(
-                    "Tensor::zero: cudaMemset failed (cudaError_t=" +
-                    std::to_string(err) + ")");
-            }
-#else
-            throw std::runtime_error("Tensor::zero: CUDA support not available");
-#endif
+            cudaMemsetImpl(data_, 0, numBytes());
         }
     }
 
@@ -185,21 +165,11 @@ public:
             const size_t n = numElements();
             for (size_t i = 0; i < n; ++i) ptr[i] = value;
         } else {
-#ifdef FORGERT_CUDA_AVAILABLE
-            // Stage on host then copy H2D.
+            // Stage on host then copy H2D through the link-time transfer provider.
             const size_t nb = numBytes();
             std::unique_ptr<float[]> host(new float[numElements()]);
             for (size_t i = 0; i < numElements(); ++i) host[i] = value;
-            const int err = forgert_cuda_memcpy(
-                data_, host.get(), nb, CudaMemcpyKind::HostToDevice);
-            if (err != 0) {
-                throw std::runtime_error(
-                    "Tensor::fill: H2D memcpy failed (cudaError_t=" +
-                    std::to_string(err) + ")");
-            }
-#else
-            throw std::runtime_error("Tensor::fill: CUDA support not available");
-#endif
+            cudaTransferImpl(data_, host.get(), nb, Device::CPU, Device::CUDA);
         }
     }
 
@@ -277,10 +247,8 @@ private:
             std::free(data_);
             recordDeallocation(Device::CPU, nb);
         } else {
-#ifdef FORGERT_CUDA_AVAILABLE
-            forgert_cuda_free(data_);  // ignore return; can't throw in dtor
+            cudaFreeImpl(data_);  // noexcept; ignores errors (dtor must not throw)
             recordDeallocation(Device::CUDA, nb);
-#endif
         }
         data_        = nullptr;
         owns_memory_ = false;
@@ -302,6 +270,17 @@ private:
     // normally on success. `src_dev`/`dst_dev` carry the Tensor device tags.
     static void cudaTransferImpl(void* dst, const void* src, size_t nbytes,
                                  Device src_dev, Device dst_dev);
+
+    // Device allocation / free / memset, dispatched at link time exactly like
+    // cudaTransferImpl (real versions in forgert_cuda, throwing/no-op fallbacks
+    // in forgert_cpu_stub). Keeping these out of line makes every inline Tensor
+    // body identical in every TU, so objects built into the CPU-only `forgert`
+    // library (e.g. ScheduledGraph creating CUDA tensors) still allocate real
+    // device memory when forgert_cuda is linked. cudaAllocImpl/cudaMemsetImpl
+    // throw on failure; cudaFreeImpl never throws.
+    static void cudaAllocImpl(void** ptr, size_t nbytes);
+    static void cudaFreeImpl(void* ptr) noexcept;
+    static void cudaMemsetImpl(void* ptr, int value, size_t nbytes);
 };
 
 } // namespace forgert

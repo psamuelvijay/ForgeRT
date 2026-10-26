@@ -36,4 +36,18 @@ void Tensor::cudaTransferImpl(void* /*dst*/, const void* /*src*/,
         "(link forgert_cuda to enable H2D/D2H/D2D transfers)");
 }
 
+void Tensor::cudaAllocImpl(void** /*ptr*/, size_t /*nbytes*/) {
+    throw std::runtime_error(
+        "Tensor: CUDA device support requires a CUDA backend "
+        "(link against forgert_cuda)");
+}
+
+// Nothing can have been allocated without a CUDA backend; nothing to free.
+void Tensor::cudaFreeImpl(void* /*ptr*/) noexcept {}
+
+void Tensor::cudaMemsetImpl(void* /*ptr*/, int /*value*/, size_t /*nbytes*/) {
+    throw std::runtime_error(
+        "Tensor::zero: CUDA support not available (link forgert_cuda)");
+}
+
 } // namespace forgert

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * test_conv2d.cpp  --  Conv2DOp correctness tests (CPU backend)
  *
  * Coverage:
@@ -222,7 +222,7 @@ static void test_known_values() {
 
 // ------------------------------------------------------------------ test 7: error cases
 static void test_error_cases() {
-    Conv2DOp op({});  // 1x1 default
+    Conv2DOp op{Conv2DParams{}};  // 1x1 default
 
     // Wrong input ndim
     Tensor bad3d(TensorShape({2,3,4}), DataType::Float32, Device::CPU);

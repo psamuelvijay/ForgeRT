@@ -13,7 +13,8 @@
  * around cudaMemcpy). Memory-transfer accounting (recordTransfer) stays in the
  * inline copyTo body in tensor.h, so it is identical for both backends.
  */
-#include "forgert/tensor/tensor.h"   // FORGERT_CUDA_AVAILABLE pulls in cuda_memory.h
+#include "forgert/tensor/tensor.h"
+#include "kernels/cuda_memory.h"
 
 #include <stdexcept>
 #include <string>
@@ -34,6 +35,28 @@ void Tensor::cudaTransferImpl(void* dst, const void* src, size_t nbytes,
     if (err != 0) {
         throw std::runtime_error(
             "Tensor::copyTo: cudaMemcpy failed (cudaError_t=" +
+            std::to_string(err) + ")");
+    }
+}
+
+void Tensor::cudaAllocImpl(void** ptr, size_t nbytes) {
+    const int err = forgert_cuda_malloc(ptr, nbytes);
+    if (err != 0) {
+        throw std::runtime_error(
+            "Tensor: CUDA memory allocation failed (cudaError_t=" +
+            std::to_string(err) + ")");
+    }
+}
+
+void Tensor::cudaFreeImpl(void* ptr) noexcept {
+    (void)forgert_cuda_free(ptr);  // dtor path: errors are intentionally ignored
+}
+
+void Tensor::cudaMemsetImpl(void* ptr, int value, size_t nbytes) {
+    const int err = forgert_cuda_memset(ptr, value, nbytes);
+    if (err != 0) {
+        throw std::runtime_error(
+            "Tensor::zero: cudaMemset failed (cudaError_t=" +
             std::to_string(err) + ")");
     }
 }
