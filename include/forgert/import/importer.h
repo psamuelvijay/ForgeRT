@@ -78,6 +78,13 @@ public:
     /// are frozen (immutable), so a ScheduledGraph kept alive across runs uploads
     /// them to the GPU once and reuses the resident copies. No validation of the
     /// caller inputs beyond the count; run() performs the full checks.
+    ///
+    /// LIFETIME: the weight pointers in the returned vector refer to tensors owned
+    /// by this ImportedModel. They are valid only while this model is alive. Keep
+    /// the ImportedModel alive for the entire lifetime of any ScheduledGraph (and
+    /// its weight cache) that is executed with these pointers; destroying the model
+    /// first leaves those pointers dangling. The caller also owns `inputs` and must
+    /// keep them alive across the execute() call.
     std::vector<const Tensor*> graphInputs(const std::vector<const Tensor*>& inputs) const {
         if (inputs.size() != input_names_.size())
             throw ImportError("graphInputs: expected " + std::to_string(input_names_.size()) +

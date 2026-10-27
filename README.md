@@ -221,7 +221,10 @@ them as *Skipped* -- never as passed.
 ## Persistent GPU weights
 
 On the mixed CPU/CUDA path, model weights used to be copied to the GPU, and the device
-copy freed, on **every** `ScheduledGraph::execute()`. They are now kept resident.
+copy freed, on **every** `ScheduledGraph::execute()`. Eligible frozen weights are now
+uploaded and reused while the same long-lived `ScheduledGraph` retains them — subject to
+the cache budget, invalidation (re-freeze, shape change, verify-mode mismatch), explicit
+`releaseDeviceWeights()`, and the lifetime of the owning model and scheduler.
 
 **How it works**
 
