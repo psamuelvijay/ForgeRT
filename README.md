@@ -318,7 +318,7 @@ GPU usage; use the utilisation counters instead.
 
 ## Test Results
 
-All 38 tests passed natively on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped, ~25 s). Docker (Ubuntu 22.04 / GCC, built from a clean checkout) was verified at commit `5f67a8f`, *before* the persistent-weights change: CPU gate 21/21 (default image), 26/26 (`WITH_PYTHON=1`), 10/10 CUDA tests with `--gpus all`. **The Docker image has not been rebuilt or re-run for the persistent-weights change** (the Docker engine did not respond in that session), so treat Linux/GCC as unverified for it until it is:
+All 38 tests passed natively on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped, ~25 s). Docker (Ubuntu 22.04 / GCC, built from a clean checkout at this commit, including the persistent-weights change) was re-verified: the `WITH_PYTHON=1` CPU gate passed 27/27 during the image build, and the CUDA subset passed 11/11 under `docker run --gpus all` with GTX 1050 passthrough — including `ScheduledCUDA` (SqueezeNet with weight reuse on run 2) and `WeightCacheCUDA`. This covers Linux/GCC + CUDA 12.6 + sm_61 through Docker only; no other OS, compiler, or GPU architecture has been tested.
 
 ```
 CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Conv2D,
