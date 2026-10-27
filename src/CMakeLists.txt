@@ -12,6 +12,9 @@ set(FORGERT_SOURCES
 
     # Resource-aware scheduler (Phase 6 - CPU/GPU placement)
     scheduler/scheduler.cpp
+
+    # Persistent device-resident cache for frozen (immutable) weights
+    scheduler/weight_cache.cpp
 )
 
 # Create core library (CPU-only: no CUDA dependency)

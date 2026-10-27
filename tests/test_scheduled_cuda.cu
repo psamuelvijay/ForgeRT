@@ -51,7 +51,9 @@
 #include <vector>
 
 #include "forgert/import/importer.h"
+#include "forgert/memory/memory_stats.h"
 #include "forgert/scheduler/scheduler.h"
+#include <algorithm>
 #include "forgert/tensor/tensor.h"
 
 using namespace forgert;
@@ -176,6 +178,7 @@ int main(int argc, char** argv) {
 
     std::vector<std::unique_ptr<Tensor>> sched_outputs;
     ScheduledGraph sched(model->graph());
+    const size_t h2d_before = MemoryStats::instance().getTransferBytes(Device::CPU, Device::CUDA);
     try {
         sched_outputs = sched.execute(all_inputs);
     } catch (const std::exception& e) {
@@ -187,6 +190,25 @@ int main(int argc, char** argv) {
                      sched_outputs.size());
         return 1;
     }
+
+    const size_t h2d_run1 =
+        MemoryStats::instance().getTransferBytes(Device::CPU, Device::CUDA) - h2d_before;
+
+    // --- second run on the SAME ScheduledGraph: weights must now be resident -----
+    // (ImportedModel freezes its weights, so the scheduler keeps them on the GPU.)
+    std::vector<std::unique_ptr<Tensor>> sched_outputs2;
+    size_t h2d_run2 = 0;
+    try {
+        const size_t b0 = MemoryStats::instance().getTransferBytes(Device::CPU, Device::CUDA);
+        sched_outputs2 = sched.execute(all_inputs);
+        h2d_run2 = MemoryStats::instance().getTransferBytes(Device::CPU, Device::CUDA) - b0;
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "FAIL: second scheduled execution failed: %s\n", e.what());
+        return 1;
+    }
+    size_t weight_bytes = 0;
+    for (const auto& w : model->weights()) weight_bytes += w->numBytes();
+    const WeightCacheStats wcs = sched.weightCacheStats();
 
     std::printf("Schedule (per-node backend placement):\n");
     sched.printSchedule();
@@ -246,6 +268,22 @@ int main(int argc, char** argv) {
     // force ReLU onto CUDA: the scheduler legitimately keeps it on CPU (see note
     // above), and overriding that would defeat the purpose of testing the real
     // scheduler. ReLU-on-CUDA count is reported as diagnostic only.
+    // --- persistent weight residency (run 2 vs run 1) ---------------------------
+    double max_abs2 = 1e30;
+    if (sched_outputs2.size() == 1 && sched_outputs2[0]->numElements() == cpu_out.numElements()) {
+        const float* c2 = static_cast<const float*>(sched_outputs2[0]->data());
+        max_abs2 = 0.0;
+        for (size_t i = 0; i < cpu_out.numElements(); ++i)
+            max_abs2 = std::max(max_abs2, std::fabs(static_cast<double>(a[i]) - static_cast<double>(c2[i])));
+    }
+    std::printf("Weight residency: %zu weight bytes; host->device bytes run 1 = %zu, run 2 = %zu "
+                "(saved %zu)\n", weight_bytes, h2d_run1, h2d_run2, h2d_run1 - std::min(h2d_run1, h2d_run2));
+    std::printf("Weight cache: hits %llu, misses %llu, uploaded %zu B, avoided %zu B, resident %zu B (%zu tensors)\n",
+                (unsigned long long)wcs.hits, (unsigned long long)wcs.misses,
+                static_cast<size_t>(wcs.uploaded_bytes), static_cast<size_t>(wcs.avoided_bytes),
+                wcs.resident_bytes, wcs.entries);
+    std::printf("Run 2 max abs diff vs CPU reference: %.3e\n", max_abs2);
+
     int fails = 0;
     if (conv_cuda < 1) { std::fprintf(stderr, "FAIL: no Conv2D node scheduled on CUDA\n"); ++fails; }
     if (cuda_total < 1) { std::fprintf(stderr, "FAIL: no node scheduled on CUDA at all\n"); ++fails; }
@@ -257,6 +295,23 @@ int main(int argc, char** argv) {
     if (max_abs > kTol) {
         std::fprintf(stderr, "FAIL: output exceeds tolerance (%.3e > %.1e)\n",
                      max_abs, static_cast<double>(kTol));
+        ++fails;
+    }
+    // Run 2 must not re-send the weights: it must save at least the weights'
+    // bytes relative to run 1 (it sends only activations), the cache must have
+    // served every weight from residency, and the output must still be correct.
+    if (h2d_run1 < weight_bytes || h2d_run1 - std::min(h2d_run1, h2d_run2) < weight_bytes) {
+        std::fprintf(stderr, "FAIL: run 2 did not avoid the weight upload "
+                             "(run1=%zu run2=%zu weights=%zu)\n", h2d_run1, h2d_run2, weight_bytes);
+        ++fails;
+    }
+    if (wcs.misses != model->numWeights() || wcs.hits < model->numWeights() ||
+        wcs.avoided_bytes < weight_bytes) {
+        std::fprintf(stderr, "FAIL: unexpected weight cache counters\n");
+        ++fails;
+    }
+    if (max_abs2 > kTol) {
+        std::fprintf(stderr, "FAIL: run-2 output exceeds tolerance (%.3e)\n", max_abs2);
         ++fails;
     }
 

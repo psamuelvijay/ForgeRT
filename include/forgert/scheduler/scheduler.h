@@ -84,6 +84,7 @@
 
 #include "forgert/graph/graph.h"
 #include "forgert/memory/memory_stats.h"
+#include "forgert/scheduler/weight_cache.h"
 
 #include <string>
 #include <vector>
@@ -256,6 +257,13 @@ struct NodeSchedule {
  * tracked by MemoryStats automatically.
  *
  * Output tensors are returned on CPU (D2H for any GPU-executed outputs).
+ *
+ * Persistent weights: a CPU input that the caller has freeze()d (e.g. imported
+ * model weights) is uploaded to the GPU once and kept resident in a per-
+ * ScheduledGraph DeviceWeightCache, so repeated execute() calls on the SAME
+ * ScheduledGraph object do not re-send it. Unfrozen inputs (activations, image
+ * data) are never cached and are re-uploaded each run. Keep one ScheduledGraph
+ * alive across runs to benefit; a fresh object starts with an empty cache.
  */
 class ScheduledGraph {
 public:
@@ -299,12 +307,35 @@ public:
 
     const std::vector<NodeSchedule>& lastSchedule() const { return last_schedule_; }
 
+    // --- persistent device-resident weights --------------------------------
+
+    /// Enable/disable the weight cache (default: enabled). Disabling releases
+    /// all resident device weights and restores upload-every-run behaviour.
+    void setWeightCacheEnabled(bool enabled);
+    bool weightCacheEnabled() const { return weight_cache_enabled_; }
+
+    /// Cap on device bytes the cache may hold (default 512 MiB).
+    void setWeightCacheBudgetBytes(size_t bytes) { weight_cache_.setBudgetBytes(bytes); }
+
+    /// Re-hash host weights on every cache hit; a mismatch invalidates the entry
+    /// (guards against writes that bypassed Tensor's freeze checks). Off by default.
+    void setWeightCacheVerify(bool on) { weight_cache_.setVerifyContent(on); }
+
+    /// Free all device-resident weights now (e.g. before destroying a model or to
+    /// reclaim VRAM). They are re-uploaded on the next execute().
+    void releaseDeviceWeights() { weight_cache_.clear(); }
+
+    /// Hit/miss counters and resident bytes (cumulative since construction).
+    WeightCacheStats weightCacheStats() const { return weight_cache_.stats(); }
+
 private:
     const Graph& graph_;
     std::unordered_map<std::string, OperatorProfile> profiles_;
     size_t vram_budget_bytes_ = static_cast<size_t>(3.8 * 1024 * 1024 * 1024);
     double transfer_bw_bytes_per_ns_ = 6.0;
     std::vector<NodeSchedule> last_schedule_;
+    DeviceWeightCache weight_cache_;
+    bool weight_cache_enabled_ = true;
 
     /// Transfer a tensor to the target device, returning the same pointer if
     /// it is already on the correct device, or a new tensor if a copy is needed.

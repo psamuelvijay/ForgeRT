@@ -213,6 +213,11 @@ void ScheduledGraph::setTransferBandwidthBytesPerNs(double bw) {
     transfer_bw_bytes_per_ns_ = bw;
 }
 
+void ScheduledGraph::setWeightCacheEnabled(bool enabled) {
+    if (!enabled) weight_cache_.clear();   // release VRAM immediately
+    weight_cache_enabled_ = enabled;
+}
+
 std::vector<NodeSchedule> ScheduledGraph::computeSchedule() const {
     // Build a device context: read live CUDA allocation from MemoryStats,
     // then apply our configured budget and bandwidth.
@@ -301,6 +306,18 @@ std::vector<std::unique_ptr<Tensor>> ScheduledGraph::execute(
         }
     }
 
+    // Weight cache housekeeping. Keep only device copies of tensors supplied (and
+    // still frozen) on THIS run: weights of a replaced or destroyed model, or of a
+    // tensor that was unfrozen, are released now instead of lingering in VRAM.
+    // This runs before the cost model reads MemoryStats so freed bytes are visible.
+    if (weight_cache_enabled_) {
+        std::unordered_set<uint64_t> live;
+        for (const Tensor* t : inputs) {
+            if (DeviceWeightCache::isCacheable(*t)) live.insert(t->id());
+        }
+        weight_cache_.retainOnly(live);
+    }
+
     // Build a fresh device context for this execution.
     DeviceContext ctx = DeviceContext::fromMemoryStats();
     ctx.cuda_vram_budget_bytes          = vram_budget_bytes_;
@@ -350,15 +367,34 @@ std::vector<std::unique_ptr<Tensor>> ScheduledGraph::execute(
             output_bytes += elems * sizeOf(dt);
         }
 
+        // A frozen CPU input that the weight cache can serve costs no host->device
+        // transfer in steady state, so it is not charged as one. "Can serve" means
+        // already resident OR admissible within the budget, which keeps the
+        // placement decision identical on the first run and on warm runs (no
+        // flip-flopping schedule). When no input is cache-served this reduces to
+        // exactly the previous accounting.
         size_t input_bytes = 0;
+        size_t served_bytes = 0;
         for (const Tensor* t : raw_inputs) {
             input_bytes += t->numBytes();
+            if (weight_cache_enabled_ && t->device() == Device::CPU &&
+                weight_cache_.canAdmit(*t)) {
+                served_bytes += t->numBytes();
+            }
         }
+        input_bytes -= served_bytes;
 
-        // Check whether all inputs are already on CUDA (e.g. from a prior GPU node).
+        // Check whether all inputs are already on CUDA (e.g. from a prior GPU node)
+        // or will be served from the resident weight cache.
         bool inputs_on_gpu = !raw_inputs.empty();
         for (const Tensor* t : raw_inputs) {
-            if (t->device() != Device::CUDA) { inputs_on_gpu = false; break; }
+            const bool cache_served = weight_cache_enabled_ &&
+                                      t->device() == Device::CPU &&
+                                      weight_cache_.canAdmit(*t);
+            if (t->device() != Device::CUDA && !cache_served) {
+                inputs_on_gpu = false;
+                break;
+            }
         }
 
         // --- scheduling decision ---------------------------------------------
@@ -388,7 +424,17 @@ std::vector<std::unique_ptr<Tensor>> ScheduledGraph::execute(
         std::vector<const Tensor*> node_inputs;
         node_inputs.reserve(raw_inputs.size());
         for (const Tensor* t : raw_inputs) {
-            Tensor* transferred = ensureDeviceImpl(t, target_device, owned_tensors);
+            Tensor* transferred = nullptr;
+            // Frozen CPU weights headed for the GPU come from (or enter) the
+            // persistent cache. acquire() returns nullptr if the budget does not
+            // allow caching; we then fall back to a transient per-run upload.
+            if (target_device == Device::CUDA && weight_cache_enabled_ &&
+                DeviceWeightCache::isCacheable(*t)) {
+                transferred = weight_cache_.acquire(*t);
+            }
+            if (!transferred) {
+                transferred = ensureDeviceImpl(t, target_device, owned_tensors);
+            }
             node_inputs.push_back(transferred);
         }
 

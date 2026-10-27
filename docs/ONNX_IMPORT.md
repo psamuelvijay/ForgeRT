@@ -38,8 +38,11 @@ graph inputs/outputs.
   registered as an extra graph input after the model's own inputs; `ImportedModel`
   owns the tensors and appends them on every `run()`. The existing optimizer and
   scheduler work unchanged (tested). A real constant node would need changes to
-  `Graph::execute`, the optimizer and the scheduler. For GPU placement the scheduler
-  would currently count transfer cost for every weight on every run.
+  `Graph::execute`, the optimizer and the scheduler. The weights are `freeze()`d at
+  import, so a `ScheduledGraph` kept alive across runs uploads them to the GPU once and
+  keeps them resident (`ImportedModel::graphInputs()` builds the input vector); see
+  the *Persistent GPU weights* section of the README. `ImportedModel::run()` itself is
+  CPU-only and unchanged.
 - **Reshape.** `Tensor` shapes are immutable and `Graph` allocates exactly what
   `inferOutputShapes()` returns, so the importer uses `ReshapeOp`'s fixed-target mode.
   SqueezeNet's `[0, -1]` target resolves to exactly `[1, 1000]`.

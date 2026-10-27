@@ -13,7 +13,9 @@
  *
  * Weights: v1 has no graph constants, so every float32 initializer becomes an
  * extra graph input registered after the model's own inputs. ImportedModel
- * owns those tensors and appends them on every run(). The only int64 tensor
+ * owns those tensors, freezes them (immutable), and appends them on every run().
+ * Frozen weights let a long-lived ScheduledGraph keep a device copy resident across
+ * runs; see graphInputs(). The only int64 tensor
  * accepted is a Reshape shape initializer, which is folded into a fixed-target
  * ReshapeOp after an int32 range check.
  *
@@ -70,6 +72,21 @@ public:
     /// so a caller can assemble the full input vector (caller inputs + weights) for
     /// an alternative executor such as ScheduledGraph.
     const std::vector<std::unique_ptr<Tensor>>& weights() const { return weights_; }
+
+    /// Full graph-input vector for Graph::execute / ScheduledGraph::execute: the
+    /// caller's `inputs` followed by the weights, in registration order. Weights
+    /// are frozen (immutable), so a ScheduledGraph kept alive across runs uploads
+    /// them to the GPU once and reuses the resident copies. No validation of the
+    /// caller inputs beyond the count; run() performs the full checks.
+    std::vector<const Tensor*> graphInputs(const std::vector<const Tensor*>& inputs) const {
+        if (inputs.size() != input_names_.size())
+            throw ImportError("graphInputs: expected " + std::to_string(input_names_.size()) +
+                              " input(s), got " + std::to_string(inputs.size()));
+        std::vector<const Tensor*> all(inputs);
+        all.reserve(inputs.size() + weights_.size());
+        for (const auto& w : weights_) all.push_back(w.get());
+        return all;
+    }
 
     /// Non-fatal notes, e.g. a node output with no VINF entry to check against.
     const std::vector<std::string>& warnings() const { return warnings_; }

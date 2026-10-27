@@ -207,6 +207,10 @@ ImportedModel ImportedModel::fromFgx(const fgx::Model& model) {
             throw ImportError("initializer '" + init.desc.name + "': byte size mismatch");
         std::memcpy(t->data(), init.data.data(), init.data.size());
         ids[init.desc.name] = g.addInput(shape, DataType::Float32, init.desc.name);
+        // Model parameters are immutable from here on. Freezing makes that a
+        // checked guarantee (writes throw) and is what lets ScheduledGraph keep
+        // a device copy resident across runs instead of re-uploading it.
+        t->freeze();
         im.weights_.push_back(std::move(t));
     }
 
