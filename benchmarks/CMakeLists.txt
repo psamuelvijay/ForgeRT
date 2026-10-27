@@ -54,6 +54,23 @@ set_target_properties(gpu_stress PROPERTIES
 )
 message(STATUS "  - gpu_stress")
 
+# Persistent weight residency: cache OFF vs ON on SqueezeNet (mixed CPU/CUDA).
+# Compiles the importer sources fresh with FORGERT_CUDA_AVAILABLE (never links
+# forgert_import, which would pull in forgert_cpu_stub). Not a CTest test.
+add_executable(benchmark_weight_residency
+    benchmark_weight_residency.cu
+    ${CMAKE_SOURCE_DIR}/src/import/importer.cpp
+    ${CMAKE_SOURCE_DIR}/src/import/fgx_reader.cpp
+)
+target_include_directories(benchmark_weight_residency PRIVATE ${FORGERT_INCLUDE_DIR})
+target_link_libraries(benchmark_weight_residency PRIVATE forgert forgert_cuda)
+set_target_properties(benchmark_weight_residency PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_ARCHITECTURES 61
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks"
+)
+message(STATUS "  - benchmark_weight_residency")
+
 # Conv2D benchmark (Phase 8)
 add_executable(benchmark_conv2d benchmark_conv2d.cu)
 target_include_directories(benchmark_conv2d PRIVATE ${FORGERT_INCLUDE_DIR})

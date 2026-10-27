@@ -218,6 +218,82 @@ them as *Skipped* -- never as passed.
 
 ---
 
+## Persistent GPU weights
+
+On the mixed CPU/CUDA path, model weights used to be copied to the GPU, and the device
+copy freed, on **every** `ScheduledGraph::execute()`. They are now kept resident.
+
+**How it works**
+
+- `Tensor::freeze()` declares a tensor immutable. A frozen tensor throws
+  `std::logic_error` on every mutation path (mutable `data()`, `zero()`, `fill()`, being
+  a `copyTo()` destination). Only owning tensors can be frozen. `ImportedModel` freezes
+  its weights at load.
+- A per-`ScheduledGraph` `DeviceWeightCache` uploads a frozen CPU input to the GPU the
+  first time a CUDA node needs it and reuses that copy on later runs. Entries are keyed
+  on the tensor's unique id and freeze generation, **never on an address**, so a freed
+  buffer reused at the same address cannot be mistaken for the old weights.
+- Unfrozen inputs (images, activations) are never cached; they are re-uploaded each run.
+- `unfreeze()` + modify + `freeze()` yields a new generation, so the stale device copy is
+  detected and replaced. For writes that bypass `Tensor` entirely (a raw pointer kept from
+  before `freeze()`, a `const_cast`), `setWeightCacheVerify(true)` re-hashes the host data
+  on each hit; it costs one pass over the weights per run and is off by default.
+- Lifetime and VRAM: a run keeps only the device copies of the frozen tensors it was
+  given, so replacing a model frees the old one's VRAM on the next run;
+  `releaseDeviceWeights()` frees everything immediately and destroying the
+  `ScheduledGraph` does too. The cache is capped at 512 MiB by default
+  (`setWeightCacheBudgetBytes`); a weight that does not fit is uploaded transiently each
+  run instead, and the result is unchanged.
+- `setWeightCacheEnabled(false)` restores the old upload-every-run behaviour.
+- The cost model treats a frozen weight the cache can serve as already resident, so
+  placement decisions are the same on the first and later runs.
+
+**Using it** - keep one `ScheduledGraph` alive across runs and pass the full input vector:
+
+```cpp
+auto model = ImportedModel::load("squeezenet1.1-7.fgx");   // weights are frozen here
+ScheduledGraph sg(model.graph());
+for (...) {
+    auto out = sg.execute(model.graphInputs({&image}));     // image uploaded each run,
+}                                                           // weights only on run 1
+auto stats = sg.weightCacheStats();   // hits, misses, uploaded/avoided bytes, resident bytes
+```
+
+A new `ScheduledGraph` starts with an empty cache. `Graph::execute` is unchanged and does
+not use the cache.
+
+**Measured (SqueezeNet 1.1, 4.71 MiB / 52 weight tensors, GTX 1050, Windows)**
+
+| | cache off | cache on |
+|---|---|---|
+| host-to-device copies per run (`MemoryStats`) | 78 (11.27 MiB) | 26 (6.56 MiB) |
+| weight bytes sent on run 2 vs run 1 | - | 4,941,984 fewer (all of them) |
+| median `execute()` latency, interleaved pairs | ~30.6-31.4 ms | ~26.7-28.3 ms |
+
+The transfer counts are exact and reproducible (`ScheduledCUDATest` and
+`WeightCacheCUDATest` assert them). The latency figures are **provisional**: two runs of
+12 interleaved pairs each on a laptop that was not verified idle, saving ~3.2-3.9 ms
+(10-13%) per run. About half of that saving is avoided `cudaMalloc`/`cudaFree` (allocate +
+upload + free of all weights measured at ~3.3 ms, of which the copy itself is ~1.7 ms),
+not the copy. Reproduce with:
+
+```batch
+cmake --build build --target benchmark_weight_residency
+cd build
+benchmarks\benchmark_weight_residency.exe tests\e2e_work\squeezenet1.1-7.fgx --runs 12
+```
+
+(`tests\e2e_work\squeezenet1.1-7.fgx` is produced by the Python end-to-end test; or convert
+the model with `tools/onnx_to_fgx.py` and pass that path.)
+
+**Limitations** - the cache lives in `ScheduledGraph`, not in the graph or the model, so
+two `ScheduledGraph` objects over the same model each hold their own copy and a freshly
+created one re-uploads. It is not thread-safe. Only inputs that are frozen *and* CPU-resident
+are cached. Activations that hop between CPU-only operators and CUDA operators are still
+transferred every run.
+
+---
+
 ## See the GPU work (CUDA stress demo)
 
 `gpu_stress` repeatedly runs `MatMulOp` on `Backend::CUDA` (2048x2048 by default, ~48 MiB
@@ -242,20 +318,22 @@ GPU usage; use the utilisation counters instead.
 
 ## Test Results
 
-All 36 tests passed natively on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped, ~25 s). In Docker (Ubuntu 22.04 / GCC, built from a clean checkout) the CPU gate passed 21/21 (default image) and 26/26 (`WITH_PYTHON=1`), and the 10 CUDA tests passed 10/10 with `--gpus all` on the same GTX 1050:
+All 38 tests passed natively on GTX 1050 / CUDA 12.6 / MSVC 14.39 (`ctest`, 0 skipped, ~25 s). Docker (Ubuntu 22.04 / GCC, built from a clean checkout) was verified at commit `5f67a8f`, *before* the persistent-weights change: CPU gate 21/21 (default image), 26/26 (`WITH_PYTHON=1`), 10/10 CUDA tests with `--gpus all`. **The Docker image has not been rebuilt or re-run for the persistent-weights change** (the Docker engine did not respond in that session), so treat Linux/GCC as unverified for it until it is:
 
 ```
 CPU operators   Tensor, Operator, ReLU, MatMul, Softmax, LayerNorm, Conv2D,
                 Concat, MaxPool2D, AveragePool2D, Dropout, Reshape
 Graph/runtime   Graph, GraphMatMul, GraphSoftmax, MemoryStats, GraphOptimizer,
-                Scheduler
+                Scheduler, TensorFreeze (CPU-only freeze/cache contract)
 Importer        FgxReader (76 checks), Importer (44 checks),
                 OnnxToFgxConverter, FgxCrossLanguage x2
 End-to-end      SqueezeNetE2E (10 inputs vs ONNX Runtime, ~15 s)
 CUDA            TensorCUDA, ReLUCUDA, MatMulCUDA, SoftmaxCUDA, LayerNormCUDA,
-                ReLUOpCUDA, AddCUDA, Conv2DCUDA, LayerNormStress (10k iters)
+                ReLUOpCUDA, AddCUDA, Conv2DCUDA, LayerNormStress (10k iters),
+                ScheduledCUDA (SqueezeNet, incl. weight reuse on run 2),
+                WeightCacheCUDA (hits, avoided bytes, invalidation, release)
 
-100% tests passed, 0 tests failed out of 36
+100% tests passed, 0 tests failed out of 38
 ```
 
 The Python-based tests (converter, cross-language, end-to-end) exit with code 77 and
@@ -325,9 +403,12 @@ Full calibration details: [`docs/PHASE7_CALIBRATION.md`](docs/PHASE7_CALIBRATION
   result (`ScheduledCUDATest`: 26/26 Conv2D on CUDA, everything else on CPU). Not
   validated: accuracy on real images beyond the 3-image check, other models, batch
   size above 1, and any performance claim for the mixed path.
-- **Weights are graph inputs** - `Graph` has no constant nodes yet, so on the mixed
-  CPU/CUDA path every convolution re-uploads its weights on every run. The scheduler
-  places Conv2D on CUDA, but that transfer churn means no speed-up is claimed.
+- **Weights are graph inputs** - `Graph` has no constant nodes. Imported weights are
+  frozen and kept resident on the GPU across runs (see *Persistent GPU weights*), but
+  only by a `ScheduledGraph` that is kept alive between runs, only for the mixed
+  `ScheduledGraph` path (not `Graph::execute`), and the activations still move between
+  CPU and GPU around the CPU-only operators. No end-to-end speed claim is made beyond
+  the provisional measurement documented below.
 - **Scheduler profiles are estimates.** `defaultProfiles()` still holds the original
   estimates; the measurement pipeline in [`docs/PROFILING.md`](docs/PROFILING.md) has
   produced only provisional, single-host runs and nothing has been promoted. The launch
